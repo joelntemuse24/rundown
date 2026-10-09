@@ -1,0 +1,84 @@
+:root {
+  --bg: #f4f0e6;
+  --ink: #1c1915;
+  --muted: #6e675c;
+  --hairline: #e4dccb;
+  --accent: #8a3d2f;
+  --desk: #e9e3d5;
+  --add-bg: rgba(84, 110, 60, 0.1);
+  --del-bg: rgba(138, 61, 47, 0.09);
+  --add-mark: #5b6f3f;
+  --del-mark: #8a3d2f;
+  --flash: rgba(138, 61, 47, 0.18);
+  --serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --pad: 28px;
+  --gap: 20px;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #161410;
+  --ink: #ece6da;
+  --muted: #9a9184;
+  --hairline: #2c2823;
+  --desk: #0f0e0b;
+  --add-bg: rgba(140, 170, 100, 0.09);
+  --del-bg: rgba(200, 110, 90, 0.09);
+  --add-mark: #a3b37f;
+  --del-mark: #c98a7c;
+  --flash: rgba(200, 110, 90, 0.22);
+  color-scheme: dark;
+}
+
+:root[data-density='compact'] {
+  --pad: 18px;
+  --gap: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--flash);
+}
+
+.rd-flash {
+  animation: rd-flash 1.2s ease-out;
+}
+
+@keyframes rd-flash {
+  from {
+    background-color: var(--flash);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  to {
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}

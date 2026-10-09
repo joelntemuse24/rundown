@@ -230,7 +230,7 @@ async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseU
  * Returns the cached replay or starts one. With `wait: false` the pending document comes back
  * immediately and the page polls /r/:id.json.
  */
-export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, opts: { wait: boolean }): Promise<StoredReplay> {
+export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, opts: { wait: boolean; beforeModel?: () => void }): Promise<StoredReplay> {
   const key = cacheKey(p.facts.diff_hash, cfg.model);
   const id = idFor(key);
   const existing = readReplay(id);
@@ -238,6 +238,7 @@ export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKe
   const running = inflight.get(id);
   if (running) return opts.wait ? running : existing!;
 
+  opts.beforeModel?.();
   const doc = newDoc(p, id, key, cfg.model);
   writeReplay(doc);
   const run = runModel(p, doc, cfg)

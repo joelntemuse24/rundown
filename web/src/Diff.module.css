@@ -1,0 +1,168 @@
+.file {
+  margin: 0 0 var(--gap);
+  scroll-margin-top: 24px;
+}
+
+.fileHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12px;
+}
+
+.path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.editor {
+  color: var(--muted);
+  text-decoration: none;
+  margin-left: auto;
+}
+
+.editor:hover {
+  color: var(--ink);
+}
+
+.hunk {
+  margin-top: 10px;
+}
+
+.hunkHead {
+  display: flex;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0 4px;
+}
+
+.section {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codeBlock {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-x: auto;
+  border-left: 1px solid var(--hairline);
+}
+
+.line,
+.splitRow {
+  display: grid;
+  grid-template-columns: 3.2em 3.2em 1.4em 1fr;
+  min-width: max-content;
+}
+
+.splitRow {
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+}
+
+.half {
+  display: grid;
+  grid-template-columns: 3.2em 1fr;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.half .code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blank {
+  background: var(--hairline);
+  opacity: 0.25;
+}
+
+.no {
+  color: var(--muted);
+  opacity: 0.7;
+  text-align: right;
+  padding-right: 0.8em;
+  user-select: none;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.sign {
+  color: var(--muted);
+  user-select: none;
+}
+
+.code {
+  font-family: inherit;
+  white-space: pre;
+  padding-right: 16px;
+}
+
+.add {
+  background: var(--add-bg);
+}
+
+.add .sign {
+  color: var(--add-mark);
+}
+
+.del {
+  background: var(--del-bg);
+}
+
+.del .sign {
+  color: var(--del-mark);
+}
+
+.ctx {
+}
+
+.longFn {
+  padding-bottom: 6px;
+}
+
+.fnNote {
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 6px 0 4px 4.6em;
+  max-width: 60ch;
+  color: var(--ink);
+}
+
+.disclose {
+  display: inline-block;
+  margin: 4px 0 0 4.6em;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-decoration: underline;
+  text-decoration-color: var(--hairline);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.disclose:hover {
+  color: var(--ink);
+}
+
+.collapsed .disclose {
+  margin-left: 0;
+  margin-top: 8px;
+}
