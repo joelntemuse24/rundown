@@ -361,14 +361,15 @@ function callEdges(files: DiffFile[], ranges: Map<string, FunctionRange[]>, bind
       const from = `${f.path}:${r.name}`;
       const lines = f.hunks.flatMap((h) => h.lines).filter((l) => l.newNo !== null && l.newNo > r.start && l.newNo <= r.end);
       for (const l of lines) {
-        const call = /(?<![.\w$])([\w$]+)\s*\(/g;
+        // Bare calls, plus self./this./cls. method calls, which can only resolve within the same file.
+        const call = /(?:(?<![.\w$])|\b(self|this|cls)\.)([\w$]+)\s*\(/g;
         let m: RegExpExecArray | null;
         while ((m = call.exec(l.text))) {
-          const name = m[1];
+          const name = m[2];
           if (name === r.name || RESERVED.has(name)) continue;
           let to: string | null = null;
           if (touched.some((t) => t.path === f.path && t.name === name)) to = `${f.path}:${name}`;
-          else if (fileBinds.has(name)) {
+          else if (!m[1] && fileBinds.has(name)) {
             const spec = fileBinds.get(name)!;
             const target = touched.find((t) => t.name === name && t.path !== f.path && resolves(f.path, spec, t.path));
             to = target ? `${target.path}:${name}` : `${spec}:${name}`;

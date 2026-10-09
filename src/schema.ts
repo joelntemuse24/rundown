@@ -221,3 +221,42 @@ export function validateReplay(raw: unknown, ctx: ValidationContext): { ok: true
 
   return errors.length ? { ok: false, errors } : { ok: true, replay: r };
 }
+
+const PRUNABLE = /^(dependencies|logic|tests|open_questions|functions)\[(\d+)\]/;
+
+/**
+ * Strict validation, then drop ungrounded optional entries instead of failing on them.
+ * Intent and sequence errors are never pruned; those still fail.
+ */
+export function groundReplay(
+  raw: unknown,
+  ctx: ValidationContext,
+): { ok: true; replay: Replay; dropped: string[] } | { ok: false; errors: string[] } {
+  const first = validateReplay(raw, ctx);
+  if (first.ok) return { ok: true, replay: first.replay, dropped: [] };
+  if (!replaySchema.safeParse(raw).success) return first;
+
+  const r = structuredClone(replaySchema.parse(raw));
+  const drop = new Map<string, Set<number>>();
+  let clearDiagram = false;
+  let clearTests = false;
+  for (const e of first.errors) {
+    const m = PRUNABLE.exec(e);
+    if (m) {
+      if (!drop.has(m[1])) drop.set(m[1], new Set());
+      drop.get(m[1])!.add(Number(m[2]));
+    } else if (e.startsWith('diagram.')) clearDiagram = true;
+    else if (e.startsWith('tests:')) clearTests = true;
+    else return first;
+  }
+  const keep = <T>(arr: T[], key: string) => arr.filter((_, i) => !drop.get(key)?.has(i));
+  r.dependencies = keep(r.dependencies, 'dependencies');
+  r.logic = keep(r.logic, 'logic');
+  r.tests = clearTests ? [] : keep(r.tests, 'tests');
+  r.open_questions = keep(r.open_questions, 'open_questions');
+  r.functions = keep(r.functions, 'functions');
+  if (clearDiagram) r.diagram = { title: '', mermaid: '' };
+
+  const second = validateReplay(r, ctx);
+  return second.ok ? { ok: true, replay: second.replay, dropped: first.errors } : second;
+}

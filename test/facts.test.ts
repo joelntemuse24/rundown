@@ -79,6 +79,36 @@ describe('facts', () => {
     expect(facts.functions_touched).toEqual([{ path: 'app/main.go', name: 'main', line: 3, status: 'modified' }]);
   });
 
+  it('follows self. method calls into a Python call chain', () => {
+    const diff = [
+      'diff --git a/bot/dump.py b/bot/dump.py',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/bot/dump.py',
+      '@@ -0,0 +1,12 @@',
+      '+class Dumper:',
+      '+    def run(self):',
+      '+        return self._run_fak_ladder()',
+      '+',
+      '+    def _run_fak_ladder(self):',
+      '+        return self._run_dump_fak_with_refire()',
+      '+',
+      '+    def _run_dump_fak_with_refire(self):',
+      '+        return self._send()',
+      '+',
+      '+    def _send(self):',
+      '+        return None',
+      '',
+    ].join('\n');
+    const { facts } = extractFacts({ diff });
+    expect(facts.call_edges.map((e) => `${e.from.split(':')[1]}->${e.to.split(':')[1]}`)).toEqual([
+      'run->_run_fak_ladder',
+      '_run_fak_ladder->_run_dump_fak_with_refire',
+      '_run_dump_fak_with_refire->_send',
+    ]);
+    expect(hasChain(facts.call_edges)).toBe(true);
+  });
+
   it('truncates with manifests and tests first and marks the cut', () => {
     const r = extractFacts({ diff: patch });
     const out = truncateDiff(r.files, r.functionRanges, 1500);

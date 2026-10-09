@@ -8,7 +8,7 @@ import { extractFacts, sha256, type Facts, type FunctionRange } from './facts.js
 import { fetchPull, parsePrUrl } from './github.js';
 import { complete, type ChatMessage } from './model.js';
 import { buildMessages, repairMessages, type PromptContext } from './prompt.js';
-import { SCHEMA_VERSION, validateReplay, type Replay } from './schema.js';
+import { groundReplay, SCHEMA_VERSION, validateReplay, type Replay } from './schema.js';
 
 export type Status = 'pending' | 'ready' | 'failed';
 
@@ -201,15 +201,19 @@ async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseU
   const attempt = async (msgs: ChatMessage[], label: string) => {
     const c = await complete(cfg, msgs);
     let errors: string[];
+    let dropped: string[] = [];
     let replay: Replay | null = null;
     try {
-      const v = validateReplay(parseModelJson(c.content), vctx);
-      if (v.ok) replay = v.replay;
+      const v = groundReplay(parseModelJson(c.content), vctx);
+      if (v.ok) {
+        replay = v.replay;
+        dropped = v.dropped;
+      }
       errors = v.ok ? [] : v.errors;
     } catch {
       errors = ['(root): response is not JSON; return a single JSON object only'];
     }
-    appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: !!replay, errors });
+    appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: !!replay, errors, dropped });
     return { replay, errors, content: c.content };
   };
 

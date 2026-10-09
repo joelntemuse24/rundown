@@ -1,6 +1,7 @@
 import type { DiffFile } from './diff.js';
 import { isTestFile, LOCKFILES, type Facts, type FunctionRange } from './facts.js';
 import type { ChatMessage } from './model.js';
+import { hasChain } from './schema.js';
 
 export const SYSTEM_PROMPT = `You write a median replay of a code diff for a human who did not write it.
 You fill a JSON schema. You do not review, praise, or suggest refactors.
@@ -95,8 +96,20 @@ export interface PromptContext {
   commits?: string[];
 }
 
+/** The closed sets the validator checks against, spelled out so the model does not have to derive them. */
+export function limitsFor(facts: Facts): string {
+  const deps = [...new Set([...facts.manifest_changes.map((m) => m.dependency), ...facts.imports_added.map((i) => i.specifier), ...facts.imports_removed.map((i) => i.specifier)])];
+  const fns = facts.functions_touched.map((f) => `${f.path}:${f.name}`);
+  return [
+    `Allowed dependency names (nothing else, not config keys or settings): ${deps.length ? deps.join(', ') : 'none, so dependencies must be []'}`,
+    `Allowed function names for functions and diagram nodes: ${fns.length ? fns.join(', ') : 'none, so functions must be []'}`,
+    `Allowed test files: ${facts.test_files.length ? facts.test_files.join(', ') : 'none, so tests must be []'}`,
+    hasChain(facts.call_edges) ? 'Diagram: allowed; call_edges contains a chain of three edges.' : 'Diagram: not allowed. call_edges has no chain of three edges, so diagram must be {"title": "", "mermaid": ""}.',
+  ].join('\n');
+}
+
 export function buildMessages(facts: Facts, files: DiffFile[], ranges: Map<string, FunctionRange[]>, ctx: PromptContext): ChatMessage[] {
-  const sections = ['full', SCHEMA_TEXT, 'Facts:\n' + JSON.stringify(facts, null, 2)];
+  const sections = ['full', SCHEMA_TEXT, limitsFor(facts), 'Facts:\n' + JSON.stringify(facts, null, 2)];
   if (ctx.title || ctx.body) sections.push(`PR title: ${ctx.title ?? ''}\nPR body:\n${ctx.body?.trim() || '(empty)'}`);
   if (ctx.commits?.length) sections.push('Commit subjects:\n' + ctx.commits.join('\n'));
   sections.push('Unified diff:\n' + truncateDiff(files, ranges));

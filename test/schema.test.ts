@@ -125,6 +125,37 @@ describe('validator', () => {
   });
 });
 
+describe('grounding prunes ungrounded optional claims', () => {
+  it('drops a config key posing as a dependency and an unearned diagram, and keeps the replay', async () => {
+    const { groundReplay } = await import('../src/schema.js');
+    const doc = clone();
+    doc.dependencies.unshift({ name: 'buy.mint_sell.dump_fast_retry_eligible', change: 'used', evidence: 'package.json:11', why: 'A setting.' });
+    doc.diagram.mermaid = 'flowchart LR\n  A[_run_fak_ladder] --> B[countAttempt]';
+    const noChain = { ...ctx, facts: { ...ctx.facts, call_edges: ctx.facts.call_edges.slice(0, 2) } };
+    const v = groundReplay(doc, noChain);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.replay.dependencies.map((d) => d.name)).toEqual(replay.dependencies.map((d) => d.name));
+    expect(v.replay.diagram).toEqual({ title: '', mermaid: '' });
+    expect(v.dropped.join()).toMatch(/dump_fast_retry_eligible/);
+  });
+
+  it('still fails on intent or sequence errors', async () => {
+    const { groundReplay } = await import('../src/schema.js');
+    const doc = clone();
+    doc.sequence[0].files[0].path = 'src/nowhere.js';
+    expect(groundReplay(doc, ctx).ok).toBe(false);
+  });
+
+  it('spells out the allowed sets in the prompt', async () => {
+    const { limitsFor } = await import('../src/prompt.js');
+    const text = limitsFor(r.facts);
+    expect(text).toContain('express-rate-limit');
+    expect(text).toContain('Diagram: allowed');
+    expect(limitsFor({ ...r.facts, call_edges: [] })).toContain('Diagram: not allowed');
+  });
+});
+
 describe('depth is a view', () => {
   it('keeps the most important steps in order', () => {
     expect(visibleSteps(replay.sequence, 'deep')).toHaveLength(6);
