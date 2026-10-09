@@ -37,6 +37,8 @@ export interface FunctionRange {
   start: number;
   end: number;
   status: 'added' | 'modified' | null;
+  /** Line to report in functions_touched when it differs from start (a function named only by a hunk header). */
+  line?: number;
 }
 
 export function sha256(s: string): string {
@@ -189,6 +191,28 @@ function functionRanges(f: DiffFile, lang: Lang): FunctionRange[] {
       if (n) decls.push({ name: n, vi });
     });
     const indent = (s: string) => /^\s*/.exec(s)![0].replace(/\t/g, '    ').length;
+    // A hunk that starts inside a function body only names that function in its @@ header.
+    // Count it as modified when lines change before the first declaration in the hunk.
+    const outer = h.section && !/^\s*(?:export\s+)?(?:abstract\s+)?class\b/.test(h.section) ? declName(h.section, lang) : null;
+    if (outer && f.status !== 'added') {
+      const base = indent(h.section);
+      const stop = decls.length ? visible[decls[0].vi].idx : h.lines.length;
+      let endIdx = stop - 1;
+      for (let i = 0; i < stop; i++) {
+        const l = h.lines[i];
+        if (l.type === 'del' || !l.text.trim()) continue;
+        if (indent(l.text) <= base) {
+          endIdx = i - 1;
+          break;
+        }
+      }
+      const body = h.lines.slice(0, endIdx + 1);
+      const changed = body.find((l) => l.type !== 'ctx');
+      const newNos = body.map((l) => l.newNo).filter((n): n is number => n !== null);
+      if (changed && newNos.length) {
+        out.push({ name: outer, start: h.newStart - 1, end: Math.max(...newNos), status: 'modified', line: body.find((l) => l.type === 'add')?.newNo ?? newNos[0] });
+      }
+    }
     decls.forEach((d, di) => {
       const startIdx = visible[d.vi].idx;
       let endIdx = di + 1 < decls.length ? visible[decls[di + 1].vi].idx - 1 : h.lines.length - 1;
@@ -337,7 +361,8 @@ export function extractFacts(input: FactsInput): FactsResult {
         const fr = functionRanges(f, lang);
         ranges.set(f.path, fr);
         for (const r of fr) {
-          if (r.status) facts.functions_touched.push({ path: f.path, name: r.name, line: r.start, status: r.status });
+          if (!r.status || facts.functions_touched.some((t) => t.path === f.path && t.name === r.name)) continue;
+          facts.functions_touched.push({ path: f.path, name: r.name, line: r.line ?? r.start, status: r.status });
         }
       }
     } catch {

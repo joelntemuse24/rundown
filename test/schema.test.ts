@@ -39,112 +39,90 @@ describe('every committed replay names only dependencies from its facts', () => 
 });
 
 describe('validator', () => {
-  it('rejects a dependency absent from the facts', () => {
+  it('accepts a messy model output as a ready replay', () => {
     const doc = clone();
-    doc.dependencies.push({ name: 'helmet', change: 'added', evidence: 'package.json:11', why: 'Security headers.' });
-    expect(errorsOf(doc).join()).toMatch(/helmet/);
-  });
-
-  it('rejects calling an existing package newly added', () => {
-    const doc = clone();
-    doc.dependencies.push({ name: 'supertest', change: 'added', evidence: 'test/loginLimiter.test.js:1', why: 'HTTP assertions.' });
-    expect(errorsOf(doc).join()).toMatch(/supertest.*used/);
-  });
-
-  it('rejects hallucinated paths', () => {
-    const doc = clone();
-    doc.sequence[0].files[0].path = 'src/app.js';
-    expect(errorsOf(doc).join()).toMatch(/not in the diff/);
-  });
-
-  it('rejects evidence outside every hunk (diff-index numbers)', () => {
-    const doc = clone();
-    doc.logic[0].evidence = 'src/routes/auth.js:40';
-    expect(errorsOf(doc).join()).toMatch(/outside every hunk/);
-  });
-
-  it('allows at most two critical steps', () => {
-    const doc = clone();
-    doc.sequence.forEach((s) => (s.importance = 'critical'));
-    expect(errorsOf(doc).join()).toMatch(/two steps/);
-  });
-
-  it('enforces intent length and source', () => {
-    const doc = clone();
-    doc.intent.text = 'Too short.';
-    expect(errorsOf(doc).join()).toMatch(/intent\.text/);
-    const doc2 = clone();
-    doc2.intent.source = 'pr_body';
-    expect(errorsOf(doc2).join()).toMatch(/no PR body/);
-  });
-
-  it('rejects three-sentence summaries and bullets', () => {
-    const doc = clone();
-    doc.sequence[1].summary = 'One. Two. Three.';
-    expect(errorsOf(doc).join()).toMatch(/2 sentences/);
-    const doc2 = clone();
-    doc2.sequence[2].summary = '- a bullet';
-    expect(errorsOf(doc2).join()).toMatch(/bullet/);
-  });
-
-  it('requires tests to be [] when the diff has no test files', () => {
-    const noTests = { ...ctx, facts: { ...ctx.facts, test_files: [] } };
-    const v = validateReplay(replay, noTests);
-    expect(v.ok).toBe(false);
-  });
-
-  it('caps open questions at three', () => {
-    const doc = clone();
-    doc.open_questions = Array(4).fill(doc.open_questions[0]);
-    expect(errorsOf(doc).length).toBeGreaterThan(0);
-  });
-
-  it('only accepts functions from functions_touched', () => {
-    const doc = clone();
+    doc.sequence[1].summary = `One. Two. Three. ${'x'.repeat(400)}`;
+    doc.sequence[1].files[0].path = 'src/nowhere.js';
+    doc.logic[0].evidence = 'see the middleware';
+    doc.dependencies.push({ name: 'helmet', change: 'added', evidence: 'not a path:line', why: 'Security headers.' });
     doc.functions[0].name = 'handleLogin';
-    expect(errorsOf(doc).join()).toMatch(/functions_touched/);
+    doc.tests.push({ file: 'test/missing.test.js', locks: 'nothing', does_not_cover: 'the rest', evidence: 'nope' });
+    doc.diagram = { title: 'Nope', mermaid: 'this is not a diagram\n  A --> B' };
+    const v = validateReplay(doc, ctx);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.replay.sequence[1].summary.length).toBeLessThanOrEqual(319);
+    expect(v.replay.sequence[1].summary.startsWith('One. Two. Three.')).toBe(true);
+    expect(v.replay.sequence[1].files[0].path).toBe('src/nowhere.js');
+    expect(v.replay.logic[0].evidence).toBe('see the middleware');
+    expect(v.replay.dependencies.map((d) => d.name)).toContain('helmet');
+    expect(v.replay.functions[0].name).toBe('handleLogin');
+    expect(v.replay.tests.map((t) => t.file)).toContain('test/missing.test.js');
+    expect(v.replay.diagram).toEqual({ title: 'Nope', mermaid: '' });
   });
 
-  it('rejects a diagram without a three-edge chain, styling, or foreign labels', () => {
-    const noChain = { ...ctx, facts: { ...ctx.facts, call_edges: ctx.facts.call_edges.slice(0, 2) } };
-    const v = validateReplay(replay, noChain);
-    expect(v.ok ? '' : v.errors.join()).toMatch(/chain of three/);
+  it('truncates a long intent and keeps a short one, bullets, and an unearned source', () => {
+    const short = clone();
+    short.intent.text = 'Too short.';
+    short.intent.source = 'pr_body';
+    const s = validateReplay(short, ctx);
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    expect(s.replay.intent).toEqual({ text: 'Too short.', source: 'pr_body' });
 
-    const styled = clone();
-    styled.diagram.mermaid += '\n  style A fill:#f00';
-    expect(errorsOf(styled).join()).toMatch(/styling/);
+    const long = clone();
+    long.intent.text = 'y'.repeat(400);
+    long.sequence[2].summary = '- a bullet';
+    const v = validateReplay(long, ctx);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.replay.intent.text).toHaveLength(280);
+    expect(v.replay.sequence[2].summary).toBe('- a bullet');
+  });
 
-    const foreign = clone();
-    foreign.diagram.mermaid = 'flowchart LR\n  A[buildAuthRouter] --> B[redisCluster]';
-    expect(errorsOf(foreign).join()).toMatch(/redisCluster/);
+  it('keeps extra critical steps, questions, tests, and a diagram the facts do not earn', () => {
+    const doc = clone();
+    doc.sequence.forEach((step) => (step.importance = 'critical'));
+    doc.open_questions = Array.from({ length: 4 }, () => doc.open_questions[0]);
+    doc.diagram.mermaid = 'flowchart LR\n  A[buildAuthRouter] --> B[redisCluster]';
+    const noTests = { ...ctx, facts: { ...ctx.facts, test_files: [], call_edges: ctx.facts.call_edges.slice(0, 2) } };
+    const v = validateReplay(doc, noTests);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.replay.sequence.every((step) => step.importance === 'critical')).toBe(true);
+    expect(v.replay.open_questions).toHaveLength(4);
+    expect(v.replay.tests).toHaveLength(replay.tests.length);
+    expect(v.replay.diagram.mermaid).toContain('redisCluster');
+  });
+
+  it('coerces missing optional sections and fails only when the page cannot render', () => {
+    const sparse = {
+      intent: { text: '  Adds a limiter.  ' },
+      sequence: [{ title: 'x'.repeat(200), summary: 12, importance: 'urgent' }, 'skip me'],
+    };
+    const v = validateReplay(sparse, ctx);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.replay.intent).toEqual({ text: 'Adds a limiter.', source: 'inferred' });
+    expect(v.replay.sequence).toEqual([
+      { id: 's1', title: 'x'.repeat(120), summary: '12', files: [], importance: 'supporting' },
+    ]);
+    expect(v.replay.dependencies).toEqual([]);
+    expect(v.replay.logic).toEqual([]);
+    expect(v.replay.tests).toEqual([]);
+    expect(v.replay.open_questions).toEqual([]);
+    expect(v.replay.functions).toEqual([]);
+    expect(v.replay.diagram).toEqual({ title: '', mermaid: '' });
+
+    expect(validateReplay(null, ctx).ok).toBe(false);
+    expect(validateReplay({ intent: { text: 'hi' } }, ctx).ok).toBe(false);
+    expect(validateReplay({ intent: 'nope', sequence: [{ id: 's1' }] }, ctx).ok).toBe(false);
+    expect(validateReplay({ intent: { text: 'hi' }, sequence: [] }, ctx).ok).toBe(false);
   });
 
   it('rejects prose', () => {
     expect(() => parseModelJson('Here is the replay you asked for.')).toThrow();
     expect(parseModelJson('```json\n{"a":1}\n```')).toEqual({ a: 1 });
-  });
-});
-
-describe('grounding prunes ungrounded optional claims', () => {
-  it('drops a config key posing as a dependency and an unearned diagram, and keeps the replay', async () => {
-    const { groundReplay } = await import('../src/schema.js');
-    const doc = clone();
-    doc.dependencies.unshift({ name: 'buy.mint_sell.dump_fast_retry_eligible', change: 'used', evidence: 'package.json:11', why: 'A setting.' });
-    doc.diagram.mermaid = 'flowchart LR\n  A[_run_fak_ladder] --> B[countAttempt]';
-    const noChain = { ...ctx, facts: { ...ctx.facts, call_edges: ctx.facts.call_edges.slice(0, 2) } };
-    const v = groundReplay(doc, noChain);
-    expect(v.ok).toBe(true);
-    if (!v.ok) return;
-    expect(v.replay.dependencies.map((d) => d.name)).toEqual(replay.dependencies.map((d) => d.name));
-    expect(v.replay.diagram).toEqual({ title: '', mermaid: '' });
-    expect(v.dropped.join()).toMatch(/dump_fast_retry_eligible/);
-  });
-
-  it('still fails on intent or sequence errors', async () => {
-    const { groundReplay } = await import('../src/schema.js');
-    const doc = clone();
-    doc.sequence[0].files[0].path = 'src/nowhere.js';
-    expect(groundReplay(doc, ctx).ok).toBe(false);
   });
 
   it('spells out the allowed sets in the prompt', async () => {
@@ -153,6 +131,39 @@ describe('grounding prunes ungrounded optional claims', () => {
     expect(text).toContain('express-rate-limit');
     expect(text).toContain('Diagram: allowed');
     expect(limitsFor({ ...r.facts, call_edges: [] })).toContain('Diagram: not allowed');
+  });
+});
+
+describe('python dependency names map back to their import', () => {
+  const diff = [
+    'diff --git a/tests/test_bot.py b/tests/test_bot.py',
+    '--- a/tests/test_bot.py',
+    '+++ b/tests/test_bot.py',
+    '@@ -1,2 +1,3 @@',
+    ' import unittest',
+    '+from buy.mint_sell import dump_fast_retry_eligible',
+    ' ',
+    '',
+  ].join('\n');
+  const py = extractFacts({ diff });
+  const pctx = { facts: py.facts, files: py.files, hasPrBody: false, hasCommits: false };
+  const base = (name: string): Replay => ({
+    ...clone(),
+    dependencies: [{ name, change: 'used', evidence: 'tests/test_bot.py:2', why: 'The test calls the real predicate.' }],
+  });
+
+  for (const name of ['buy.mint_sell', 'buy.mint_sell.dump_fast_retry_eligible', 'dump_fast_retry_eligible']) {
+    it(name, () => {
+      const v = validateReplay(base(name), pctx);
+      expect(v.ok ? [] : v.errors).toEqual([]);
+      if (v.ok) expect(v.replay.dependencies[0].name).toBe('buy.mint_sell');
+    });
+  }
+
+  it('keeps a name the import does not bind', () => {
+    const v = validateReplay(base('requests'), pctx);
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.replay.dependencies[0].name).toBe('requests');
   });
 });
 

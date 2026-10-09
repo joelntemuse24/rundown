@@ -116,3 +116,36 @@ describe('facts', () => {
     expect(out).toContain('[rundown: diff truncated');
   });
 });
+
+describe('python functions named only by a hunk header', () => {
+  const diff = [
+    'diff --git a/bot.py b/bot.py',
+    '--- a/bot.py',
+    '+++ b/bot.py',
+    '@@ -40,6 +40,8 @@ def run_dump(leg, tol):',
+    '     sold = 0.0',
+    '     for _ in range(3):',
+    '-        sold = ladder(leg)',
+    '+        sold = _run_fak_ladder(leg)',
+    '+        if not eligible(sold=sold, tol=tol):',
+    '+            break',
+    '     return sold',
+    ' ',
+    ' ',
+    'diff --git a/tests/test_bot.py b/tests/test_bot.py',
+    '--- a/tests/test_bot.py',
+    '+++ b/tests/test_bot.py',
+    '@@ -1,2 +1,3 @@',
+    ' import unittest',
+    '+from buy.mint_sell import eligible',
+    ' ',
+    '',
+  ].join('\n');
+
+  it('counts the enclosing function as modified once', () => {
+    const { facts } = extractFacts({ diff });
+    expect(facts.functions_touched).toContainEqual({ path: 'bot.py', name: 'run_dump', line: 42, status: 'modified' });
+    expect(facts.functions_touched.filter((f) => f.name === 'run_dump')).toHaveLength(1);
+    expect(facts.imports_added).toEqual([{ path: 'tests/test_bot.py', specifier: 'buy.mint_sell', line: 2, kind: 'py' }]);
+  });
+});
