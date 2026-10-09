@@ -1,0 +1,104 @@
+diff --git a/package.json b/package.json
+index 1b19491..846ea31 100644
+--- a/package.json
++++ b/package.json
+@@ -8,6 +8,7 @@
+   },
+   "dependencies": {
+     "express": "^4.19.2",
++    "express-rate-limit": "^7.4.0",
+     "ioredis": "^5.4.1"
+   },
+   "devDependencies": {
+diff --git a/src/middleware/loginLimiter.js b/src/middleware/loginLimiter.js
+new file mode 100644
+index 0000000..1bc8a98
+--- /dev/null
++++ b/src/middleware/loginLimiter.js
+@@ -0,0 +1,46 @@
++import rateLimit from 'express-rate-limit';
++import { redis } from '../lib/redis.js';
++
++const WINDOW_MS = 15 * 60 * 1000;
++const MAX_ATTEMPTS = 5;
++
++export async function countAttempt(key) {
++  const redisKey = `login-attempts:${key}`;
++  const hits = await redis.incr(redisKey);
++  if (hits === 1) {
++    await redis.pexpire(redisKey, WINDOW_MS);
++  }
++  return hits;
++}
++
++export function failOpenStore() {
++  return {
++    async increment(key) {
++      try {
++        const totalHits = await countAttempt(key);
++        return { totalHits, resetTime: new Date(Date.now() + WINDOW_MS) };
++      } catch (err) {
++        // Redis is down: let the login through instead of locking everyone out.
++        console.warn('login limiter: redis unavailable, failing open', err.message);
++        return { totalHits: 0, resetTime: undefined };
++      }
++    },
++    async decrement(key) {
++      await redis.decr(`login-attempts:${key}`).catch(() => {});
++    },
++    async resetKey(key) {
++      await redis.del(`login-attempts:${key}`).catch(() => {});
++    },
++  };
++}
++
++export function createLoginLimiter() {
++  return rateLimit({
++    windowMs: WINDOW_MS,
++    limit: MAX_ATTEMPTS,
++    standardHeaders: 'draft-7',
++    legacyHeaders: false,
++    keyGenerator: (req) => `${req.ip}:${req.body?.email ?? ''}`,
++    store: failOpenStore(),
++  });
++}
+diff --git a/src/routes/auth.js b/src/routes/auth.js
+index f76391a..18848c6 100644
+--- a/src/routes/auth.js
++++ b/src/routes/auth.js
+@@ -1,9 +1,10 @@
+ import { Router } from 'express';
+ import { login, logout, refresh } from '../controllers/auth.js';
++import { createLoginLimiter } from '../middleware/loginLimiter.js';
+ 
+ export function buildAuthRouter() {
+   const router = Router();
+-  router.post('/login', login);
++  router.post('/login', createLoginLimiter(), login);
+   router.post('/logout', logout);
+   router.post('/refresh', refresh);
+   return router;
+diff --git a/test/loginLimiter.test.js b/test/loginLimiter.test.js
+new file mode 100644
+index 0000000..77eadc7
+--- /dev/null
++++ b/test/loginLimiter.test.js
+@@ -0,0 +1,18 @@
++import request from 'supertest';
++import { describe, it, expect } from 'vitest';
++import { createApp } from '../src/app.js';
++
++describe('POST /auth/login rate limit', () => {
++  it('returns 429 after five failed attempts', async () => {
++    const app = createApp();
++    const attempt = () =>
++      request(app).post('/auth/login').send({ email: 'ada@example.com', password: 'wrong' });
++
++    for (let i = 0; i < 5; i++) {
++      await attempt();
++    }
++
++    const res = await attempt();
++    expect(res.status).toBe(429);
++  });
++});

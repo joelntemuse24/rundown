@@ -1,0 +1,118 @@
+import type { DiffFile } from './diff.js';
+import { isTestFile, LOCKFILES, type Facts, type FunctionRange } from './facts.js';
+import type { ChatMessage } from './model.js';
+
+export const SYSTEM_PROMPT = `You write a median replay of a code diff for a human who did not write it.
+You fill a JSON schema. You do not review, praise, or suggest refactors.
+The facts JSON is authoritative. Every dependency, path, symbol, and test file
+you name must appear in the facts. If a fact is absent, omit the claim.
+Order sequence by what a reader must understand first, not by filename.
+Describe control flow and failure behavior only when the diff shows it.
+Mark intent source as inferred only when no PR body and no commit message was provided.
+Return JSON only. No markdown fence.`;
+
+// The system text above is fixed by the spec, so the shape and limits ride along with "full".
+export const SCHEMA_TEXT = `Schema (every key required, use [] or "" when empty):
+{
+  "intent": { "text": "40-280 chars", "source": "pr_body|commits|inferred" },
+  "sequence": [{ "id": "s1", "title": "", "summary": "1-2 sentences, <320 chars", "files": [{ "path": "", "lines": "12-40" }], "importance": "critical|important|supporting" }],
+  "dependencies": [{ "name": "", "change": "added|removed|used", "evidence": "path:line", "why": "" }],
+  "logic": [{ "id": "l1", "step_id": "s1", "summary": "", "evidence": "path:line", "failure_mode": "" }],
+  "tests": [{ "file": "", "locks": "", "does_not_cover": "", "evidence": "path:line" }],
+  "open_questions": [{ "text": "", "evidence": "path:line" }],
+  "functions": [{ "path": "", "name": "", "note": "", "evidence": "path:line" }],
+  "diagram": { "title": "", "mermaid": "" }
+}
+Rules: sequence has 3 to 8 steps, at most two critical. No bullet characters in strings.
+Line numbers are new-file line numbers (after the patch) inside a hunk, never positions in the diff text.
+dependencies: only names from manifest_changes, imports_added, or imports_removed; "added" only for new manifest entries or new local modules, otherwise "used".
+tests: one entry per file in test_files, or [] if there are none; say plainly what each does not cover.
+open_questions: 0 to 3, each pointing at a file in the diff; never ask what the diff already answers.
+functions: one note for every entry in functions_touched.
+diagram.mermaid: "" unless call_edges contains a chain of three edges; otherwise a flowchart whose node labels are bare symbol names from the facts, with no styling, click events, or HTML.`;
+
+export const DIFF_BUDGET = 80_000;
+const MANIFEST = /(^|\/)(package\.json|requirements\.txt|pyproject\.toml|go\.mod|Cargo\.toml|Gemfile)$/;
+
+function renderFile(f: DiffFile): string {
+  const out = [`diff --git a/${f.oldPath} b/${f.path}`];
+  if (f.status === 'added') out.push('new file');
+  if (f.status === 'deleted') out.push('deleted file');
+  for (const h of f.hunks) {
+    out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@${h.section ? ' ' + h.section : ''}`);
+    for (const l of h.lines) out.push((l.type === 'add' ? '+' : l.type === 'del' ? '-' : ' ') + l.text);
+  }
+  return out.join('\n');
+}
+
+function summariseLargeNewFile(f: DiffFile, ranges: FunctionRange[]): string {
+  const lines = f.hunks.flatMap((h) => h.lines);
+  const sigs = ranges.filter((r) => r.status).map((r) => `  ${r.name} (line ${r.start}-${r.end})`);
+  return [
+    `diff --git a/${f.path} b/${f.path}`,
+    'new file',
+    `[rundown: new file of ${lines.length} lines, shown as signatures plus first and last 40 lines]`,
+    'signatures:',
+    ...sigs,
+    `@@ -0,0 +1,40 @@`,
+    ...lines.slice(0, 40).map((l) => '+' + l.text),
+    `[rundown: lines 41-${lines.length - 40} omitted]`,
+    `@@ -0,0 +${lines.length - 39},40 @@`,
+    ...lines.slice(-40).map((l) => '+' + l.text),
+  ].join('\n');
+}
+
+/** Manifests and tests whole first, then source files, then lockfiles; cut is marked. */
+export function truncateDiff(files: DiffFile[], ranges: Map<string, FunctionRange[]>, budget = DIFF_BUDGET): string {
+  const rank = (f: DiffFile) => {
+    const base = f.path.split('/').pop()!;
+    if (LOCKFILES.has(base)) return 3;
+    if (MANIFEST.test(f.path)) return 0;
+    if (isTestFile(f.path)) return 1;
+    return 2;
+  };
+  const ordered = files.map((f, i) => ({ f, i })).sort((a, b) => rank(a.f) - rank(b.f) || a.i - b.i).map((x) => x.f);
+  const parts: string[] = [];
+  const omitted: string[] = [];
+  let used = 0;
+  for (const f of ordered) {
+    const lineCount = f.hunks.reduce((n, h) => n + h.lines.length, 0);
+    const text = f.status === 'added' && lineCount > 400 ? summariseLargeNewFile(f, ranges.get(f.path) ?? []) : renderFile(f);
+    if (used + text.length + 1 > budget) {
+      omitted.push(f.path);
+      continue;
+    }
+    parts.push(text);
+    used += text.length + 1;
+  }
+  if (omitted.length) parts.push(`[rundown: diff truncated at ${budget} characters; omitted files: ${omitted.join(', ')}]`);
+  return parts.join('\n');
+}
+
+export interface PromptContext {
+  title?: string;
+  body?: string;
+  commits?: string[];
+}
+
+export function buildMessages(facts: Facts, files: DiffFile[], ranges: Map<string, FunctionRange[]>, ctx: PromptContext): ChatMessage[] {
+  const sections = ['full', SCHEMA_TEXT, 'Facts:\n' + JSON.stringify(facts, null, 2)];
+  if (ctx.title || ctx.body) sections.push(`PR title: ${ctx.title ?? ''}\nPR body:\n${ctx.body?.trim() || '(empty)'}`);
+  if (ctx.commits?.length) sections.push('Commit subjects:\n' + ctx.commits.join('\n'));
+  sections.push('Unified diff:\n' + truncateDiff(files, ranges));
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: sections.join('\n\n') },
+  ];
+}
+
+export function repairMessages(original: ChatMessage[], badOutput: string, errors: string[]): ChatMessage[] {
+  return [
+    ...original,
+    { role: 'assistant', content: badOutput.slice(0, 20_000) },
+    {
+      role: 'user',
+      content: `The JSON failed validation:\n${errors.slice(0, 40).join('\n')}\n\nReturn the corrected JSON only. No prose, no markdown fence.`,
+    },
+  ];
+}

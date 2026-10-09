@@ -1,0 +1,161 @@
+{
+  "intent": {
+    "text": "Rate-limit POST /auth/login to five attempts per fifteen minutes per IP and email, counting attempts in Redis and letting logins through if Redis fails.",
+    "source": "inferred"
+  },
+  "sequence": [
+    {
+      "id": "s1",
+      "title": "Add express-rate-limit as a runtime dependency",
+      "summary": "package.json gains express-rate-limit ^7.4.0 next to express and ioredis. Nothing else in the manifest moves.",
+      "files": [{ "path": "package.json", "lines": "10" }],
+      "importance": "supporting"
+    },
+    {
+      "id": "s2",
+      "title": "Count attempts in Redis with a fifteen-minute window",
+      "summary": "countAttempt increments a per-key counter and sets its expiry only on the first hit, so the window starts at the first attempt rather than sliding.",
+      "files": [{ "path": "src/middleware/loginLimiter.js", "lines": "1-14" }],
+      "importance": "important"
+    },
+    {
+      "id": "s3",
+      "title": "Wrap the counter in a store that fails open",
+      "summary": "failOpenStore adapts countAttempt to the express-rate-limit store interface. If Redis throws, increment reports zero hits, so the request is allowed and a warning is logged.",
+      "files": [{ "path": "src/middleware/loginLimiter.js", "lines": "16-35" }],
+      "importance": "critical"
+    },
+    {
+      "id": "s4",
+      "title": "Build the limiter with five attempts per window",
+      "summary": "createLoginLimiter configures rateLimit with the window, a limit of five, draft-7 headers, and a key made of the client IP plus the submitted email.",
+      "files": [{ "path": "src/middleware/loginLimiter.js", "lines": "37-46" }],
+      "importance": "important"
+    },
+    {
+      "id": "s5",
+      "title": "Put the limiter in front of the login route only",
+      "summary": "buildAuthRouter now runs createLoginLimiter() before login. The logout and refresh routes are unchanged and remain unlimited.",
+      "files": [{ "path": "src/routes/auth.js", "lines": "3-7" }],
+      "importance": "critical"
+    },
+    {
+      "id": "s6",
+      "title": "Test that the sixth attempt gets a 429",
+      "summary": "The new test posts five wrong passwords for one email and asserts the sixth response status is 429.",
+      "files": [{ "path": "test/loginLimiter.test.js", "lines": "1-18" }],
+      "importance": "supporting"
+    }
+  ],
+  "dependencies": [
+    {
+      "name": "express-rate-limit",
+      "change": "added",
+      "evidence": "package.json:10",
+      "why": "Provides the rateLimit middleware that counts requests per key and answers 429 once the limit is passed."
+    },
+    {
+      "name": "../lib/redis.js",
+      "change": "used",
+      "evidence": "src/middleware/loginLimiter.js:2",
+      "why": "The existing shared Redis client holds the attempt counters so the limit is shared across server processes."
+    },
+    {
+      "name": "../middleware/loginLimiter.js",
+      "change": "added",
+      "evidence": "src/routes/auth.js:3",
+      "why": "The auth router imports the new limiter factory from the middleware module added in this diff."
+    }
+  ],
+  "logic": [
+    {
+      "id": "l1",
+      "step_id": "s2",
+      "summary": "The expiry is set only when the counter reads 1, so the window is fixed from the first attempt.",
+      "evidence": "src/middleware/loginLimiter.js:10",
+      "failure_mode": "If pexpire fails after incr succeeds, the key has no TTL and the counter never resets for that IP and email."
+    },
+    {
+      "id": "l2",
+      "step_id": "s3",
+      "summary": "Any error from countAttempt is caught and turned into zero hits, which the limiter reads as under the limit.",
+      "evidence": "src/middleware/loginLimiter.js:25",
+      "failure_mode": "While Redis is down, login has no rate limit at all; the only signal is a console warning per request."
+    },
+    {
+      "id": "l3",
+      "step_id": "s3",
+      "summary": "decrement and resetKey swallow their own Redis errors with an empty catch.",
+      "evidence": "src/middleware/loginLimiter.js:29",
+      "failure_mode": "A failed reset leaves the old count in place until the key expires."
+    },
+    {
+      "id": "l4",
+      "step_id": "s4",
+      "summary": "The limiter key combines req.ip with req.body.email, falling back to an empty string when the body has no email.",
+      "evidence": "src/middleware/loginLimiter.js:43",
+      "failure_mode": "If the body parser has not run before this middleware, every request from one IP shares the empty-email key."
+    },
+    {
+      "id": "l5",
+      "step_id": "s5",
+      "summary": "createLoginLimiter() is called once when the router is built, so all login requests share one limiter instance.",
+      "evidence": "src/routes/auth.js:7",
+      "failure_mode": ""
+    }
+  ],
+  "tests": [
+    {
+      "file": "test/loginLimiter.test.js",
+      "locks": "After five login attempts for the same email, the sixth POST /auth/login returns 429.",
+      "does_not_cover": "The fail-open path when Redis errors, the window expiry, the rate-limit headers, and the logout and refresh routes staying unlimited.",
+      "evidence": "test/loginLimiter.test.js:16"
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Is an unlimited login endpoint during a Redis outage the intended trade-off, or should it alert beyond a console warning?",
+      "evidence": "src/middleware/loginLimiter.js:24"
+    },
+    {
+      "text": "Does the app register a JSON body parser before the auth router, so req.body.email is set when the key is generated?",
+      "evidence": "src/middleware/loginLimiter.js:43"
+    }
+  ],
+  "functions": [
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "countAttempt",
+      "note": "Increments login-attempts:<key> in Redis and sets a fifteen-minute expiry on the first hit. Returns the new count.",
+      "evidence": "src/middleware/loginLimiter.js:7"
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "failOpenStore",
+      "note": "Returns an express-rate-limit store whose increment fails open on Redis errors and whose decrement and resetKey ignore errors.",
+      "evidence": "src/middleware/loginLimiter.js:16"
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "createLoginLimiter",
+      "note": "Builds the rateLimit middleware with a limit of five per window, keyed by IP and email, backed by failOpenStore.",
+      "evidence": "src/middleware/loginLimiter.js:37"
+    },
+    {
+      "path": "src/routes/auth.js",
+      "name": "buildAuthRouter",
+      "note": "Now inserts the login limiter before the login handler; the other routes are untouched.",
+      "evidence": "src/routes/auth.js:5"
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "name": "attempt",
+      "note": "Test helper that posts one wrong-password login for ada@example.com.",
+      "evidence": "test/loginLimiter.test.js:8"
+    }
+  ],
+  "diagram": {
+    "title": "Login request through the limiter",
+    "mermaid": "flowchart LR\n  A[buildAuthRouter] --> B[createLoginLimiter]\n  B --> C[failOpenStore]\n  C --> D[countAttempt]\n  B --> E[rateLimit]"
+  }
+}

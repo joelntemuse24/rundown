@@ -1,0 +1,39 @@
+{
+  "name": "rundown",
+  "version": "0.1.0",
+  "description": "Writes a median replay of a diff: what landed, in what order, which libraries it leans on, where the logic branches, and what the tests lock.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "rundown": "./bin/rundown.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm run build:web && pnpm run build:server",
+    "build:web": "vite build --config web/vite.config.ts",
+    "build:server": "tsc -p tsconfig.json",
+    "dev:web": "vite --config web/vite.config.ts",
+    "serve": "tsx src/cli.ts serve",
+    "fixture": "tsx src/cli.ts --fixture fixtures/sample.patch",
+    "start": "node dist/cli.js serve",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.33.4",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "mermaid": "^12.1.0",
+    "preact": "^11.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

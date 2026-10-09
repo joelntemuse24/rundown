@@ -1,0 +1,146 @@
+{
+  "diff_hash": "9359b89fb539fe7d624777e0da045750deb5d4b0782561a4f2404b1b2fb26c7c",
+  "base": "",
+  "head": "",
+  "files": [
+    {
+      "path": "package.json",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "old_path": ""
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "status": "added",
+      "additions": 46,
+      "deletions": 0,
+      "old_path": ""
+    },
+    {
+      "path": "src/routes/auth.js",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 1,
+      "old_path": ""
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "status": "added",
+      "additions": 18,
+      "deletions": 0,
+      "old_path": ""
+    }
+  ],
+  "imports_added": [
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "specifier": "express-rate-limit",
+      "line": 1,
+      "kind": "esm"
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "specifier": "../lib/redis.js",
+      "line": 2,
+      "kind": "esm"
+    },
+    {
+      "path": "src/routes/auth.js",
+      "specifier": "../middleware/loginLimiter.js",
+      "line": 3,
+      "kind": "esm"
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "specifier": "supertest",
+      "line": 1,
+      "kind": "esm"
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "specifier": "vitest",
+      "line": 2,
+      "kind": "esm"
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "specifier": "../src/app.js",
+      "line": 3,
+      "kind": "esm"
+    }
+  ],
+  "imports_removed": [],
+  "manifest_changes": [
+    {
+      "file": "package.json",
+      "dependency": "express-rate-limit",
+      "change": "added",
+      "from": "",
+      "to": "^7.4.0"
+    }
+  ],
+  "test_files": [
+    "test/loginLimiter.test.js"
+  ],
+  "functions_touched": [
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "countAttempt",
+      "line": 7,
+      "status": "added"
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "failOpenStore",
+      "line": 16,
+      "status": "added"
+    },
+    {
+      "path": "src/middleware/loginLimiter.js",
+      "name": "createLoginLimiter",
+      "line": 37,
+      "status": "added"
+    },
+    {
+      "path": "src/routes/auth.js",
+      "name": "buildAuthRouter",
+      "line": 5,
+      "status": "modified"
+    },
+    {
+      "path": "test/loginLimiter.test.js",
+      "name": "attempt",
+      "line": 8,
+      "status": "added"
+    }
+  ],
+  "call_edges": [
+    {
+      "from": "src/middleware/loginLimiter.js:failOpenStore",
+      "to": "src/middleware/loginLimiter.js:countAttempt",
+      "line": 20
+    },
+    {
+      "from": "src/middleware/loginLimiter.js:createLoginLimiter",
+      "to": "express-rate-limit:rateLimit",
+      "line": 38
+    },
+    {
+      "from": "src/middleware/loginLimiter.js:createLoginLimiter",
+      "to": "src/middleware/loginLimiter.js:failOpenStore",
+      "line": 44
+    },
+    {
+      "from": "src/routes/auth.js:buildAuthRouter",
+      "to": "src/middleware/loginLimiter.js:createLoginLimiter",
+      "line": 7
+    },
+    {
+      "from": "test/loginLimiter.test.js:attempt",
+      "to": "supertest:request",
+      "line": 9
+    }
+  ],
+  "commands_observed": []
+}
