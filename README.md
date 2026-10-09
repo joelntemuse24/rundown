@@ -69,7 +69,7 @@ Replays live in `~/.cache/rundown/<id>.json` with their facts and canonical diff
 
 1. **Facts** (`src/facts.ts`): files, added/removed imports, manifest dependency changes, test files, touched functions, and call edges, extracted statically from the diff (conservative regexes for JS/TS, Python, Go, Rust, Ruby). No model.
 2. **Model** (`src/prompt.ts`, `src/model.ts`): one call with the fixed system prompt, the facts, PR title/body and commit subjects, and the diff truncated to 80k characters (manifests and tests kept whole).
-3. **Validation** (`src/schema.ts`): zod for shape, then grounding. Every path must be in the diff, every evidence line must fall inside a hunk's new-file range, dependencies must come from the facts, at most two critical steps, a diagram only when the call edges form a three-edge chain. Prose is rejected. One repair call gets the validator messages; a second failure stores no replay.
+3. **Validation** (`src/schema.ts`): the model JSON is coerced into the shape the viewer renders. Over-long text is truncated, missing optional sections become empty, a diagram that is not Mermaid is blanked, and claims are kept even when a path, dependency, or symbol is not in the facts. A replay fails only when the output is not JSON or is missing `intent` / a sequence step. Prose gets one repair call; a second unparseable response stores no replay.
 4. **Viewer** (`web/`): a pure function of the stored JSON, the depth, and the diff. Shallow, median, and deep are views over one document, so switching depth never calls the model.
 
 ## HTTP

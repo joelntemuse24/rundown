@@ -8,7 +8,7 @@ import { extractFacts, sha256, type Facts, type FunctionRange } from './facts.js
 import { fetchPull, parsePrUrl } from './github.js';
 import { complete, type ChatMessage } from './model.js';
 import { buildMessages, repairMessages, type PromptContext } from './prompt.js';
-import { groundReplay, SCHEMA_VERSION, validateReplay, type Replay } from './schema.js';
+import { SCHEMA_VERSION, validateReplay, type Replay } from './schema.js';
 
 export type Status = 'pending' | 'ready' | 'failed';
 
@@ -200,27 +200,27 @@ async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseU
   const messages = buildMessages(p.facts, p.files, p.ranges, p.context);
   const attempt = async (msgs: ChatMessage[], label: string) => {
     const c = await complete(cfg, msgs);
-    let errors: string[];
-    let dropped: string[] = [];
+    let errors: string[] = [];
     let replay: Replay | null = null;
+    let unparseable = false;
     try {
-      const v = groundReplay(parseModelJson(c.content), vctx);
-      if (v.ok) {
-        replay = v.replay;
-        dropped = v.dropped;
-      }
-      errors = v.ok ? [] : v.errors;
+      const v = validateReplay(parseModelJson(c.content), vctx);
+      if (v.ok) replay = v.replay;
+      else errors = v.errors;
     } catch {
+      unparseable = true;
       errors = ['(root): response is not JSON; return a single JSON object only'];
     }
-    appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: !!replay, errors, dropped });
-    return { replay, errors, content: c.content };
+    appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: !!replay, errors });
+    return { replay, errors, content: c.content, unparseable };
   };
 
   try {
     let r = await attempt(messages, 'first');
-    if (!r.replay) r = await attempt(repairMessages(messages, r.content, r.errors), 'repair');
-    if (!r.replay) throw new Error(`The model's replay failed validation twice: ${r.errors.slice(0, 5).join('; ')}`);
+    // One repair call, and only when the model did not return JSON. A parsed object that is the wrong shape fails once.
+    const retried = !r.replay && r.unparseable;
+    if (retried) r = await attempt(repairMessages(messages, r.content, r.errors), 'repair');
+    if (!r.replay) throw new Error(`The model's replay failed validation${retried ? ' twice' : ''}: ${r.errors.slice(0, 5).join('; ')}`);
     return { ...doc, status: 'ready', replay: r.replay, error: null, updated_at: new Date().toISOString() };
   } catch (err) {
     const message = (err as Error).message;
