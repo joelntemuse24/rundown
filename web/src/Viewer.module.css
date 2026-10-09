@@ -162,7 +162,7 @@ a.sourceLabel:hover {
 .layout {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr) 280px;
-  gap: 0 36px;
+  gap: 0 28px;
   align-items: start;
   padding-top: 28px;
 }
@@ -579,4 +579,13 @@ a.sourceLabel:hover {
   .spacer {
     display: none;
   }
+}
+
+.diagramCanvas :global(svg *) {
+  filter: none !important;
+}
+
+.diagramCanvas :global(.node rect),
+.diagramCanvas :global(.node polygon) {
+  stroke-width: 1px !important;
 }

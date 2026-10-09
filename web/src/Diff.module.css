@@ -166,3 +166,26 @@
   margin-left: 0;
   margin-top: 8px;
 }
+
+.allNew .add {
+  background: none;
+}
+
+.fold {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px dashed var(--hairline);
+  border-bottom: 1px dashed var(--hairline);
+  padding: 2px 0 2px 7.8em;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.fold:hover {
+  color: var(--ink);
+}

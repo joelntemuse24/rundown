@@ -236,15 +236,24 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
     [fileMap, replay],
   );
 
-  const stepCites = (st: Step, path: string, line: number) => {
-    const f = fileMap.get(path);
-    const set = citedHunks(st).get(path);
-    if (!f || !set) return false;
-    return [...set].some((i) => {
-      const [a, b] = hunkSpan(f, f.hunks[i]);
-      return line >= a && line <= b;
-    });
-  };
+  /** Line windows a step shows inside its cited hunks: its ranges and logic evidence, with three lines of context. */
+  const stepWindows = useCallback(
+    (st: Step, path: string): Array<[number, number]> => {
+      const out: Array<[number, number]> = [];
+      for (const sf of st.files) {
+        const r = sf.path === path ? parseLineRange(sf.lines) : null;
+        if (r) out.push([r[0] - 3, r[1] + 3]);
+      }
+      for (const l of replay.logic.filter((x) => x.step_id === st.id)) {
+        const e = parseEvidence(l.evidence);
+        if (e && e.path === path) out.push([e.line - 3, e.line + 3]);
+      }
+      return out;
+    },
+    [replay],
+  );
+
+  const stepCites = (st: Step, path: string, line: number) => stepWindows(st, path).some(([a, b]) => line >= a && line <= b);
 
   const jumpTo = (ev: string) => {
     const e = parseEvidence(ev);
@@ -256,7 +265,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
         setRevealed(new Set());
       } else {
         setRevealed((r) => new Set(r).add(e.path));
-        setOtherOpen(true);
+        if (!citedHunks(current).has(e.path)) setOtherOpen(true);
       }
     }
     setJump({ path: e.path, line: e.line, n: Date.now() });
@@ -414,7 +423,14 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
                 return e && e.path === f.path && e.line >= a && e.line <= b;
               });
               return (
-                <HunkView key={i} f={f} h={h} split={split && wide} longFns={longFns}>
+                <HunkView
+                  key={`${current.id}:${i}:${restOpen}`}
+                  f={f}
+                  h={h}
+                  split={split && wide}
+                  longFns={longFns}
+                  windows={restOpen || !isCited || !stepWindows(current, f.path).length ? undefined : stepWindows(current, f.path)}
+                >
                   {notes.map((l) => (
                     <aside class={s.note} key={l.id}>
                       <p class={s.noteText}>

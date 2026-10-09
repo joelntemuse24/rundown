@@ -8,7 +8,7 @@
       "id": "s1",
       "title": "Add express-rate-limit as a runtime dependency",
       "summary": "package.json gains express-rate-limit ^7.4.0 next to express and ioredis. Nothing else in the manifest moves.",
-      "files": [{ "path": "package.json", "lines": "10" }],
+      "files": [{ "path": "package.json", "lines": "11" }],
       "importance": "supporting"
     },
     {
@@ -51,7 +51,7 @@
     {
       "name": "express-rate-limit",
       "change": "added",
-      "evidence": "package.json:10",
+      "evidence": "package.json:11",
       "why": "Provides the rateLimit middleware that counts requests per key and answers 429 once the limit is passed."
     },
     {

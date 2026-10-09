@@ -98,16 +98,57 @@ function Lines({ f, lines, split }: { f: DiffFile; lines: DiffLine[]; split: boo
   );
 }
 
-export function HunkView({ f, h, split, longFns, children }: { f: DiffFile; h: Hunk; split: boolean; longFns: LongFunction[]; children?: ComponentChildren }) {
+/** New-side line used to decide whether a line sits inside a cited window (old side for deleted files). */
+function anchors(f: DiffFile, h: Hunk): number[] {
+  const own = h.lines.map((l) => (f.status === 'deleted' ? l.oldNo : l.newNo));
+  return own.map((n, i) => {
+    if (n !== null) return n;
+    for (let j = i + 1; j < own.length; j++) if (own[j] !== null) return own[j]!;
+    for (let j = i - 1; j >= 0; j--) if (own[j] !== null) return own[j]!;
+    return 0;
+  });
+}
+
+export function HunkView({
+  f,
+  h,
+  split,
+  longFns,
+  windows,
+  children,
+}: {
+  f: DiffFile;
+  h: Hunk;
+  split: boolean;
+  longFns: LongFunction[];
+  windows?: Array<[number, number]>;
+  children?: ComponentChildren;
+}) {
   const [open, setOpen] = useState<Set<number>>(new Set());
-  const segments: Array<{ kind: 'lines'; lines: DiffLine[] } | { kind: 'fn'; fn: LongFunction; sig: DiffLine[]; body: DiffLine[] }> = [];
+  const [unfolded, setUnfolded] = useState<Set<number>>(new Set());
+  const anchor = anchors(f, h);
+  const hidden = (i: number) => !!windows && !unfolded.has(i) && !windows.some(([a, b]) => anchor[i] >= a && anchor[i] <= b);
+
+  type Seg = { kind: 'lines'; lines: DiffLine[] } | { kind: 'fn'; fn: LongFunction; sig: DiffLine[]; body: DiffLine[] } | { kind: 'fold'; idx: number[] };
+  const segments: Seg[] = [];
   let buf: DiffLine[] = [];
+  const flush = () => {
+    if (buf.length) segments.push({ kind: 'lines', lines: buf });
+    buf = [];
+  };
   for (let i = 0; i < h.lines.length; i++) {
+    if (hidden(i)) {
+      flush();
+      const idx: number[] = [];
+      while (i < h.lines.length && hidden(i)) idx.push(i++);
+      i--;
+      segments.push({ kind: 'fold', idx });
+      continue;
+    }
     const l = h.lines[i];
     const fn = l.newNo !== null ? longFns.find((x) => x.start === l.newNo) : undefined;
     if (fn && !open.has(fn.start)) {
-      if (buf.length) segments.push({ kind: 'lines', lines: buf });
-      buf = [];
+      flush();
       const body: DiffLine[] = [];
       let j = i + 1;
       while (j < h.lines.length && (h.lines[j].newNo === null || h.lines[j].newNo! <= fn.end)) body.push(h.lines[j++]);
@@ -117,10 +158,10 @@ export function HunkView({ f, h, split, longFns, children }: { f: DiffFile; h: H
     }
     buf.push(l);
   }
-  if (buf.length) segments.push({ kind: 'lines', lines: buf });
+  flush();
 
   return (
-    <div class={s.hunk}>
+    <div class={`${s.hunk} ${f.status === 'added' ? s.allNew : ''}`}>
       <div class={s.hunkHead}>
         <span>
           @@ {f.status === 'deleted' ? `${h.oldStart}–${h.oldStart + h.oldLines - 1}` : `${h.newStart}–${h.newStart + h.newLines - 1}`}
@@ -131,6 +172,15 @@ export function HunkView({ f, h, split, longFns, children }: { f: DiffFile; h: H
         {segments.map((seg, i) =>
           seg.kind === 'lines' ? (
             <Lines key={i} f={f} lines={seg.lines} split={split} />
+          ) : seg.kind === 'fold' ? (
+            <button
+              key={i}
+              class={s.fold}
+              onClick={() => setUnfolded(new Set([...unfolded, ...seg.idx]))}
+              data-covers={`${f.path}:${anchor[seg.idx[0]]}-${anchor[seg.idx[seg.idx.length - 1]]}`}
+            >
+              ··· {seg.idx.length} {seg.idx.length === 1 ? 'line' : 'lines'} not in this step
+            </button>
           ) : (
             <div key={i} class={s.longFn} data-covers={`${f.path}:${seg.fn.start}-${seg.fn.end}`}>
               <Lines f={f} lines={seg.sig} split={split} />

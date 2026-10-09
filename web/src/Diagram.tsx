@@ -61,9 +61,8 @@ export function Diagram({ source, title, dark, vendorSrc, onNode }: { source: st
         ref.current.innerHTML = svg;
         const el = ref.current.querySelector('svg');
         if (el) {
-          el.style.maxHeight = '248px';
-          el.style.maxWidth = '100%';
-          el.removeAttribute('height');
+          el.style.maxHeight = '232px';
+          el.style.height = 'auto';
         }
       } catch {
         if (!cancelled) setFailed(true);

@@ -41,7 +41,7 @@ describe('every committed replay names only dependencies from its facts', () => 
 describe('validator', () => {
   it('rejects a dependency absent from the facts', () => {
     const doc = clone();
-    doc.dependencies.push({ name: 'helmet', change: 'added', evidence: 'package.json:10', why: 'Security headers.' });
+    doc.dependencies.push({ name: 'helmet', change: 'added', evidence: 'package.json:11', why: 'Security headers.' });
     expect(errorsOf(doc).join()).toMatch(/helmet/);
   });
 
