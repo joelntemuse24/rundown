@@ -1,0 +1,9 @@
+# Merge into your Hermes config. Keep one of the two entries.
+mcp_servers:
+  rundown:
+    command: rundown
+    args: ["mcp"]
+  rundown-remote:
+    url: https://<host>/mcp
+    headers:
+      Authorization: "Bearer ${RUNDOWN_TOKEN}"

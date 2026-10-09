@@ -73,17 +73,17 @@ function openBrowser(url: string) {
   } catch {}
 }
 
-async function prepare(a: Args, cfg: Config): Promise<Prepared> {
+async function prepare(a: Args, _cfg: Config): Promise<Prepared> {
   if (a.prUrl) return preparePr(a.prUrl, process.env.GITHUB_TOKEN || undefined);
   if (a.diff) return prepareDiff(readFileSync(a.diff, 'utf8'), { source: { kind: 'diff', label: a.diff.split('/').pop()! } });
   return prepareLocal(process.cwd(), a.local ?? 'main');
 }
 
-async function produce(a: Args, cfg: Config): Promise<StoredReplay> {
+async function produce(a: Args, cfg: Config, quiet = false): Promise<StoredReplay> {
   if (a.fixture) return generateFixture(resolve(a.fixture));
   const p = await prepare(a, cfg);
-  process.stderr.write(`rundown: ${p.facts.files.length} files, writing the replay with ${cfg.model}…\n`);
-  return generate(p, cfg, { wait: true });
+  if (!quiet) process.stderr.write(`rundown: ${p.facts.files.length} files, writing the replay with ${cfg.model}…\n`);
+  return generate(p, cfg, { wait: true, quiet: true });
 }
 
 async function main() {
@@ -159,7 +159,7 @@ async function hook(a: Args, cfg: Config) {
       return process.exit(0);
     }
     if (!a.prUrl && !a.diff && !a.local) a.local = 'main';
-    const doc = await produce(a, cfg);
+    const doc = await produce(a, cfg, true);
     if (doc.status !== 'ready') return fail(doc.error ?? 'generation failed');
     await startDetachedServer(cfg);
     console.log(replayUrl(`http://127.0.0.1:${cfg.port}`, doc.id, a.depth, cfg));

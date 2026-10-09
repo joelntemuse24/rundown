@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rundown": {
+      "command": "rundown",
+      "args": ["mcp"]
+    }
+  }
+}

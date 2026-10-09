@@ -1,0 +1,19 @@
+{
+  "name": "rundown-viewer",
+  "displayName": "Rundown",
+  "description": "Open a Rundown replay in an editor tab.",
+  "version": "0.1.0",
+  "publisher": "rundown",
+  "engines": { "vscode": "^1.85.0" },
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [{ "command": "rundown.open", "title": "Rundown: Open replay" }],
+    "configuration": {
+      "title": "Rundown",
+      "properties": {
+        "rundown.url": { "type": "string", "default": "http://127.0.0.1:5200", "description": "Rundown server" }
+      }
+    }
+  }
+}

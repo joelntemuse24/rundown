@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rundown": {
+      "command": "rundown",
+      "args": ["mcp"]
+    },
+    "rundown-remote": {
+      "url": "https://<host>/mcp",
+      "headers": { "Authorization": "Bearer ${RUNDOWN_TOKEN}" }
+    }
+  }
+}

@@ -19,7 +19,7 @@
     "fixture": "tsx src/cli.ts --fixture fixtures/sample.patch",
     "start": "node dist/cli.js serve",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vite build --config web/vite.config.ts --logLevel warn && vitest run"
   },
   "packageManager": "pnpm@10.33.4",
   "dependencies": {

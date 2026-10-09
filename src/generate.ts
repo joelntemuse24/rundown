@@ -195,7 +195,7 @@ export function parseModelJson(content: string): unknown {
   return JSON.parse(t);
 }
 
-async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>): Promise<StoredReplay> {
+async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, quiet = false): Promise<StoredReplay> {
   const vctx = { facts: p.facts, files: p.files, hasPrBody: !!p.context.body?.trim(), hasCommits: !!p.context.commits?.length };
   const messages = buildMessages(p.facts, p.files, p.ranges, p.context);
   const attempt = async (msgs: ChatMessage[], label: string) => {
@@ -221,7 +221,7 @@ async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseU
   } catch (err) {
     const message = (err as Error).message;
     appendLog(p.facts.diff_hash, { id: doc.id, error: message });
-    console.error(`rundown: generation failed for ${doc.id}: ${message}`);
+    if (!quiet) console.error(`rundown: generation failed for ${doc.id}: ${message}`);
     return { ...doc, status: 'failed', replay: null, error: message, updated_at: new Date().toISOString() };
   }
 }
@@ -230,7 +230,7 @@ async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseU
  * Returns the cached replay or starts one. With `wait: false` the pending document comes back
  * immediately and the page polls /r/:id.json.
  */
-export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, opts: { wait: boolean; beforeModel?: () => void }): Promise<StoredReplay> {
+export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, opts: { wait: boolean; beforeModel?: () => void; quiet?: boolean }): Promise<StoredReplay> {
   const key = cacheKey(p.facts.diff_hash, cfg.model);
   const id = idFor(key);
   const existing = readReplay(id);
@@ -241,7 +241,7 @@ export async function generate(p: Prepared, cfg: Pick<Config, 'baseURL' | 'apiKe
   opts.beforeModel?.();
   const doc = newDoc(p, id, key, cfg.model);
   writeReplay(doc);
-  const run = runModel(p, doc, cfg)
+  const run = runModel(p, doc, cfg, opts.quiet)
     .then((done) => {
       writeReplay(done);
       return done;

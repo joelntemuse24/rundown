@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rundown": {
+      "url": "https://<host>/mcp",
+      "headers": { "Authorization": "Bearer ${env:RUNDOWN_TOKEN}" }
+    },
+    "rundown-local": {
+      "command": "rundown",
+      "args": ["mcp"]
+    }
+  }
+}
