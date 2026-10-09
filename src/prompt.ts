@@ -10,13 +10,23 @@ you name must appear in the facts. If a fact is absent, omit the claim.
 Order sequence by what a reader must understand first, not by filename.
 Describe control flow and failure behavior only when the diff shows it.
 Mark intent source as inferred only when no PR body and no commit message was provided.
-Return JSON only. No markdown fence.`;
+Return one JSON object and nothing else. No markdown fence, no prose before or after it.
+Every evidence value is path:line. Summaries are one or two sentences.
+Name a dependency or function only when the facts list it. A diagram is valid Mermaid or "".`;
 
-// The system text above is fixed by the spec, so the shape and limits ride along with "full".
-export const SCHEMA_TEXT = `Schema (every key required, use [] or "" when empty):
+export const SCHEMA_TEXT = `Return one JSON object with exactly these keys. Use [] or "" when a section is empty.
+
+Quality:
+- Evidence, everywhere it appears, is "path:line". The line is the new-file line number inside a hunk after the patch, never a position in the diff text and never a sentence.
+- Summaries are concise: one or two sentences, under 320 characters, with no bullet characters. intent.text is one or two sentences, about 40 to 280 characters. Step titles are under 120 characters.
+- dependencies[].name must be copied from manifest_changes, imports_added, or imports_removed. Do not invent packages, config keys, or imported function names. "added" only for a new manifest entry or a new local module; otherwise "used".
+- functions[].path and functions[].name must match an entry in functions_touched. Do not name any other function. Write one note for each entry.
+- diagram.mermaid is "" unless call_edges contains a chain of three edges. When you draw one, it must be valid Mermaid starting with "flowchart" or "sequenceDiagram". Node labels are bare symbol names from the facts. No styling, no click events, no HTML. diagram.title is a short label, or "" when mermaid is "".
+
+Shape:
 {
-  "intent": { "text": "40-280 chars", "source": "pr_body|commits|inferred" },
-  "sequence": [{ "id": "s1", "title": "", "summary": "1-2 sentences, <320 chars", "files": [{ "path": "", "lines": "12-40" }], "importance": "critical|important|supporting" }],
+  "intent": { "text": "", "source": "pr_body|commits|inferred" },
+  "sequence": [{ "id": "s1", "title": "", "summary": "", "files": [{ "path": "", "lines": "12-40" }], "importance": "critical|important|supporting" }],
   "dependencies": [{ "name": "", "change": "added|removed|used", "evidence": "path:line", "why": "" }],
   "logic": [{ "id": "l1", "step_id": "s1", "summary": "", "evidence": "path:line", "failure_mode": "" }],
   "tests": [{ "file": "", "locks": "", "does_not_cover": "", "evidence": "path:line" }],
@@ -24,13 +34,12 @@ export const SCHEMA_TEXT = `Schema (every key required, use [] or "" when empty)
   "functions": [{ "path": "", "name": "", "note": "", "evidence": "path:line" }],
   "diagram": { "title": "", "mermaid": "" }
 }
-Rules: sequence has 3 to 8 steps, at most two critical. No bullet characters in strings.
-Line numbers are new-file line numbers (after the patch) inside a hunk, never positions in the diff text.
-dependencies: only names from manifest_changes, imports_added, or imports_removed; "added" only for new manifest entries or new local modules, otherwise "used".
-tests: one entry per file in test_files, or [] if there are none; say plainly what each does not cover.
-open_questions: 0 to 3, each pointing at a file in the diff; never ask what the diff already answers.
-functions: one note for every entry in functions_touched.
-diagram.mermaid: "" unless call_edges contains a chain of three edges; otherwise a flowchart whose node labels are bare symbol names from the facts, with no styling, click events, or HTML.`;
+sequence has 3 to 8 steps, ordered for a reader, at most two of them "critical".
+intent.source is "pr_body" only when a PR body was provided, "commits" only when commit subjects were provided and there is no PR body, otherwise "inferred".
+files[].path is a path from the diff. files[].lines is a new-file range inside a hunk, like "12-40" or "11".
+logic.step_id is the id of a sequence step. failure_mode only when the diff shows the failure.
+tests: one entry per file in test_files, or [] if there are none. Say plainly what each does not cover.
+open_questions: 0 to 3, each about something the diff does not answer, with evidence in a file from the diff.`;
 
 export const DIFF_BUDGET = 80_000;
 const MANIFEST = /(^|\/)(package\.json|requirements\.txt|pyproject\.toml|go\.mod|Cargo\.toml|Gemfile)$/;
@@ -96,7 +105,7 @@ export interface PromptContext {
   commits?: string[];
 }
 
-/** The closed sets the validator checks against, spelled out so the model does not have to derive them. */
+/** The closed sets from the facts, spelled out so the model copies names instead of inventing them. */
 export function limitsFor(facts: Facts): string {
   const deps = [...new Set([...facts.manifest_changes.map((m) => m.dependency), ...facts.imports_added.map((i) => i.specifier), ...facts.imports_removed.map((i) => i.specifier)])];
   const fns = facts.functions_touched.map((f) => `${f.path}:${f.name}`);
@@ -125,7 +134,7 @@ export function repairMessages(original: ChatMessage[], badOutput: string, error
     { role: 'assistant', content: badOutput.slice(0, 20_000) },
     {
       role: 'user',
-      content: `The JSON failed validation:\n${errors.slice(0, 40).join('\n')}\n\nReturn the corrected JSON only. No prose, no markdown fence.`,
+      content: `That reply was not JSON.\n${errors.slice(0, 40).join('\n')}\n\nReturn one JSON object only. No prose, no markdown fence.`,
     },
   ];
 }

@@ -8,7 +8,7 @@ import { extractFacts, sha256, type Facts, type FunctionRange } from './facts.js
 import { fetchPull, parsePrUrl } from './github.js';
 import { complete, type ChatMessage } from './model.js';
 import { buildMessages, repairMessages, type PromptContext } from './prompt.js';
-import { SCHEMA_VERSION, validateReplay, type Replay } from './schema.js';
+import { presentReplay, SCHEMA_VERSION } from './schema.js';
 
 export type Status = 'pending' | 'ready' | 'failed';
 
@@ -31,7 +31,8 @@ export interface StoredReplay {
   context: PromptContext;
   facts: Facts;
   diff: string;
-  replay: Replay | null;
+  /** Parsed model JSON, stored unchanged. Null only while a replay is still being written. */
+  replay: unknown;
   error: string | null;
 }
 
@@ -147,7 +148,8 @@ export function listReplays(): Array<{ id: string; title: string; label: string;
     if (!/^[0-9a-f]{12}\.json$/.test(f)) continue;
     const doc = readReplay(f.slice(0, 12));
     if (!doc) continue;
-    out.push({ id: doc.id, title: doc.replay?.intent.text || doc.context.title || doc.source.label, label: doc.source.label, status: doc.status, created_at: doc.created_at });
+    const title = presentReplay(doc.replay).intentText || doc.context.title || doc.source.label;
+    out.push({ id: doc.id, title, label: doc.source.label, status: doc.status, created_at: doc.created_at });
   }
   return out.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
@@ -196,31 +198,26 @@ export function parseModelJson(content: string): unknown {
 }
 
 async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, quiet = false): Promise<StoredReplay> {
-  const vctx = { facts: p.facts, files: p.files, hasPrBody: !!p.context.body?.trim(), hasCommits: !!p.context.commits?.length };
   const messages = buildMessages(p.facts, p.files, p.ranges, p.context);
   const attempt = async (msgs: ChatMessage[], label: string) => {
     const c = await complete(cfg, msgs);
-    let errors: string[] = [];
-    let replay: Replay | null = null;
-    let unparseable = false;
     try {
-      const v = validateReplay(parseModelJson(c.content), vctx);
-      if (v.ok) replay = v.replay;
-      else errors = v.errors;
+      const replay = parseModelJson(c.content);
+      appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: true, errors: [] });
+      return { replay, errors: [] as string[], content: c.content, unparseable: false };
     } catch {
-      unparseable = true;
-      errors = ['(root): response is not JSON; return a single JSON object only'];
+      const errors = ['response is not JSON; return a single JSON object only'];
+      appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: false, errors });
+      return { replay: undefined, errors, content: c.content, unparseable: true };
     }
-    appendLog(p.facts.diff_hash, { id: doc.id, attempt: label, model: c.model, prompt_tokens: c.promptTokens, completion_tokens: c.completionTokens, ok: !!replay, errors });
-    return { replay, errors, content: c.content, unparseable };
   };
 
   try {
     let r = await attempt(messages, 'first');
-    // One repair call, and only when the model did not return JSON. A parsed object that is the wrong shape fails once.
-    const retried = !r.replay && r.unparseable;
+    // One repair call, and only when the reply is not JSON. Any parsed value is stored as-is.
+    const retried = r.unparseable;
     if (retried) r = await attempt(repairMessages(messages, r.content, r.errors), 'repair');
-    if (!r.replay) throw new Error(`The model's replay failed validation${retried ? ' twice' : ''}: ${r.errors.slice(0, 5).join('; ')}`);
+    if (r.unparseable) throw new Error(`The model did not return JSON${retried ? ' twice' : ''}.`);
     return { ...doc, status: 'ready', replay: r.replay, error: null, updated_at: new Date().toISOString() };
   } catch (err) {
     const message = (err as Error).message;
@@ -265,18 +262,24 @@ export function generateFixture(patchPath: string): StoredReplay {
   const p = prepareDiff(diff, { source: { kind: 'fixture', label: patchPath.split('/').pop()! } });
   const replayPath = patchPath.replace(/\.patch$/, '.replay.json');
   if (!existsSync(replayPath)) throw new Error(`No committed replay next to the fixture (${replayPath}).`);
-  const v = validateReplay(JSON.parse(readFileSync(replayPath, 'utf8')), { facts: p.facts, files: p.files, hasPrBody: false, hasCommits: false });
-  if (!v.ok) throw new Error(`Fixture replay failed validation: ${v.errors.join('; ')}`);
+  let replay: unknown;
+  try {
+    replay = JSON.parse(readFileSync(replayPath, 'utf8'));
+  } catch {
+    throw new Error(`Fixture replay is not JSON (${replayPath}).`);
+  }
   const key = cacheKey(p.facts.diff_hash, 'fixture');
-  const doc: StoredReplay = { ...newDoc(p, idFor(key), key, 'fixture'), status: 'ready', replay: v.replay };
+  const doc: StoredReplay = { ...newDoc(p, idFor(key), key, 'fixture'), status: 'ready', replay };
   writeReplay(doc);
   return doc;
 }
 
 export function summaryText(doc: StoredReplay): string {
   if (doc.status === 'failed') return `Generation failed: ${doc.error}`;
-  if (!doc.replay) return 'Replay is still being written.';
-  const deps = doc.replay.dependencies.length;
-  const tests = doc.replay.tests.length;
-  return [doc.replay.intent.text, `${deps} ${deps === 1 ? 'dependency' : 'dependencies'}`, `${tests} test ${tests === 1 ? 'file' : 'files'}`].join('\n');
+  if (doc.status !== 'ready') return 'Replay is still being written.';
+  const view = presentReplay(doc.replay);
+  const deps = view.dependencies.length;
+  const tests = view.tests.length;
+  const head = view.intentText || doc.context.title || doc.source.label;
+  return [head, `${deps} ${deps === 1 ? 'dependency' : 'dependencies'}`, `${tests} test ${tests === 1 ? 'file' : 'files'}`].join('\n');
 }

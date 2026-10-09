@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cacheDir } from './config.js';
 import { packageRoot, type StoredReplay } from './generate.js';
-import type { Depth } from './schema.js';
+import { presentReplay, type Depth } from './schema.js';
 
 export const webDist = () => join(packageRoot, 'web', 'dist');
 
@@ -36,7 +36,7 @@ export function buildExportHtml(doc: StoredReplay, depth: Depth): string {
 }
 
 export function needsMermaid(doc: StoredReplay): boolean {
-  return !!doc.replay?.diagram.mermaid.trim();
+  return presentReplay(doc.replay).diagramMermaid.trim().length > 0;
 }
 
 export function writeExport(doc: StoredReplay, depth: Depth, output?: string): string {

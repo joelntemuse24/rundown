@@ -12,7 +12,8 @@ export interface Doc {
   context: { title?: string; body?: string; commits?: string[] };
   facts: Facts;
   diff: string;
-  replay: Replay | null;
+  /** Model JSON, stored as returned. Null while generation is still running. */
+  replay: unknown;
   error: string | null;
   current_head?: string;
 }
