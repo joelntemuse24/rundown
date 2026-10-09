@@ -26,7 +26,7 @@ function loadMermaid(src: string): Promise<any> {
 
 let seq = 0;
 
-/** Renders only valid Mermaid; anything else hides the band without a toast. */
+/** Renders valid Mermaid. A source Mermaid cannot draw is shown as plain text. */
 export function Diagram({ source, title, dark, vendorSrc, onNode }: { source: string; title: string; dark: boolean; vendorSrc: string; onNode: (label: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -73,7 +73,14 @@ export function Diagram({ source, title, dark, vendorSrc, onNode }: { source: st
     };
   }, [source, dark, vendorSrc]);
 
-  if (failed) return null;
+  if (failed) {
+    return (
+      <section class={`${s.diagram} ${s.diagramText}`} aria-label={title || 'Call diagram'}>
+        {title && <div class={s.diagramTitle}>{title}</div>}
+        <pre class={s.diagramPlain}>{source}</pre>
+      </section>
+    );
+  }
 
   const click = (e: MouseEvent) => {
     const node = (e.target as Element).closest('g.node, g.actor, text.actor');

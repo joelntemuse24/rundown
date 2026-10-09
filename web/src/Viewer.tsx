@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseDiff, parseEvidence, parseLineRange, type DiffFile } from '../../src/diff';
-import { DEPTH_SLOTS, DEPTHS, hasChain, visibleSteps, type Step } from '../../src/schema';
+import { DEPTH_SLOTS, DEPTHS, hasChain, presentReplay, visibleSteps, type PresentedStep } from '../../src/schema';
 import { copyText, postGenerate, type Depth, type Doc } from './data';
 import { Diagram } from './Diagram';
 import { CollapsedFile, FileHeader, functionEnd, hunkSpan, HunkView, NOISY, type LongFunction } from './DiffView';
@@ -54,7 +54,7 @@ export function Viewer({ id, initial, defaultDepth, exported }: { id?: string; i
     );
   }
   if (doc.status === 'pending') return <Pending doc={doc} />;
-  if (doc.status === 'failed' || !doc.replay) return <Failed doc={doc} />;
+  if (doc.status === 'failed') return <Failed doc={doc} />;
   return <ReplayView doc={doc} defaultDepth={defaultDepth} exported={!!exported} />;
 }
 
@@ -141,7 +141,6 @@ function flash(selector: string) {
 }
 
 function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: Depth; exported: boolean }) {
-  const replay = doc.replay!;
   const facts = doc.facts;
   const files = useMemo(() => parseDiff(doc.diff), [doc.diff]);
   const fileMap = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
@@ -164,12 +163,13 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
   const wide = useWide();
   const mainRef = useRef<HTMLElement>(null);
 
+  const view = useMemo(() => presentReplay(doc.replay), [doc.replay]);
   const slots = DEPTH_SLOTS[depth];
-  const steps = useMemo(() => visibleSteps(replay.sequence, depth), [replay, depth]);
+  const steps = useMemo(() => visibleSteps(view.steps, depth), [view, depth]);
   const current = steps.find((x) => x.id === stepId) ?? steps[0];
-  const currentIdx = steps.indexOf(current);
+  const currentIdx = current ? steps.indexOf(current) : -1;
   const chain = useMemo(() => hasChain(facts.call_edges), [facts]);
-  const diagramAvailable = !!replay.diagram.mermaid.trim() && (depth === 'deep' || (depth === 'median' && chain));
+  const diagramAvailable = !!view.diagramMermaid.trim() && (depth === 'deep' || (depth === 'median' && chain));
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -184,8 +184,8 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
     } catch {}
   }, [compact]);
   useEffect(() => {
-    document.title = `${replay.intent.text} · Rundown`;
-  }, [replay]);
+    document.title = view.intentText ? `${view.intentText} · Rundown` : 'Rundown';
+  }, [view]);
 
   const setDepth = (next: Depth) => {
     setDepthState(next);
@@ -195,7 +195,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
       history.replaceState(null, '', u);
     }
   };
-  const selectStep = (st: Step) => {
+  const selectStep = (st: PresentedStep) => {
     setStepId(st.id);
     setRevealed(new Set());
     setOtherOpen(false);
@@ -209,7 +209,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
 
   /** Hunks a step cites: those overlapping its line ranges, plus those its logic notes point into. */
   const citedHunks = useCallback(
-    (st: Step) => {
+    (st: PresentedStep) => {
       const out = new Map<string, Set<number>>();
       const add = (path: string, a: number, b: number) => {
         const f = fileMap.get(path);
@@ -227,45 +227,45 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
         const r = parseLineRange(sf.lines);
         if (r) add(sf.path, r[0], r[1]);
       }
-      for (const l of replay.logic.filter((x) => x.step_id === st.id)) {
+      for (const l of view.logic.filter((x) => x.step_id === st.id)) {
         const e = parseEvidence(l.evidence);
         if (e && out.has(e.path)) add(e.path, e.line, e.line);
       }
       return out;
     },
-    [fileMap, replay],
+    [fileMap, view],
   );
 
   /** Line windows a step shows inside its cited hunks: its ranges and logic evidence, with three lines of context. */
   const stepWindows = useCallback(
-    (st: Step, path: string): Array<[number, number]> => {
+    (st: PresentedStep, path: string): Array<[number, number]> => {
       const out: Array<[number, number]> = [];
       for (const sf of st.files) {
         const r = sf.path === path ? parseLineRange(sf.lines) : null;
         if (r) out.push([r[0] - 3, r[1] + 3]);
       }
-      for (const l of replay.logic.filter((x) => x.step_id === st.id)) {
+      for (const l of view.logic.filter((x) => x.step_id === st.id)) {
         const e = parseEvidence(l.evidence);
         if (e && e.path === path) out.push([e.line - 3, e.line + 3]);
       }
       return out;
     },
-    [replay],
+    [view],
   );
 
-  const stepCites = (st: Step, path: string, line: number) => stepWindows(st, path).some(([a, b]) => line >= a && line <= b);
+  const stepCites = (st: PresentedStep, path: string, line: number) => stepWindows(st, path).some(([a, b]) => line >= a && line <= b);
 
   const jumpTo = (ev: string) => {
     const e = parseEvidence(ev);
     if (!e) return;
-    if (!stepCites(current, e.path, e.line)) {
+    if (!current || !stepCites(current, e.path, e.line)) {
       const owner = steps.find((st) => stepCites(st, e.path, e.line));
       if (owner) {
         setStepId(owner.id);
         setRevealed(new Set());
       } else {
         setRevealed((r) => new Set(r).add(e.path));
-        if (!citedHunks(current).has(e.path)) setOtherOpen(true);
+        if (!current || !citedHunks(current).has(e.path)) setOtherOpen(true);
       }
     }
     setJump({ path: e.path, line: e.line, n: Date.now() });
@@ -309,7 +309,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
   };
   const copyLink = async () => say((await copyText(location.href)) ? 'Link copied' : 'Could not copy');
 
-  const copyForAgent = async (st: Step) => {
+  const copyForAgent = async (st: PresentedStep) => {
     const selected = window.getSelection()?.toString().trim() || '';
     const sf = st.files[0];
     const evidence = sf ? `${sf.path}:${parseLineRange(sf.lines)?.[0] ?? sf.lines}` : '';
@@ -391,9 +391,9 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
 
   // ---------- step column ----------
 
-  const cited = citedHunks(current);
-  const stepLogic = slots.logic ? replay.logic.filter((l) => l.step_id === current.id) : [];
-  const fnNotes = new Map(replay.functions.map((f) => [`${f.path}:${f.name}`, f.note]));
+  const cited = current ? citedHunks(current) : new Map<string, Set<number>>();
+  const stepLogic = current && slots.logic ? view.logic.filter((l) => l.step_id === current.id) : [];
+  const fnNotes = new Map(view.functions.map((f) => [`${f.path}:${f.name}`, f.note]));
   const longFnsFor = (f: DiffFile): LongFunction[] =>
     facts.functions_touched
       .filter((t) => t.path === f.path && t.status === 'added')
@@ -424,7 +424,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
               });
               return (
                 <HunkView
-                  key={`${current.id}:${i}:${restOpen}`}
+                  key={`${current?.id ?? 'file'}:${i}:${restOpen}`}
                   f={f}
                   h={h}
                   split={split && wide}
@@ -433,9 +433,11 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
                 >
                   {notes.map((l) => (
                     <aside class={s.note} key={l.id}>
-                      <p class={s.noteText}>
-                        {l.summary} <Cite ev={l.evidence} />
-                      </p>
+                      {(l.summary || l.evidence) && (
+                        <p class={s.noteText}>
+                          {l.summary} {l.evidence && <Cite ev={l.evidence} />}
+                        </p>
+                      )}
                       {l.failure_mode && (
                         <p class={s.noteFail}>
                           <span class={s.noteLabel}>If it fails</span> {l.failure_mode}
@@ -459,8 +461,8 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
 
   const citedFiles = [...cited.keys()].map((p) => fileMap.get(p)).filter((f): f is DiffFile => !!f);
   const otherFiles = files.filter((f) => !cited.has(f.path));
-  const deps = replay.dependencies;
-  const tests = replay.tests;
+  const deps = view.dependencies;
+  const tests = view.tests;
   const showRail = railOpen;
 
   return (
@@ -478,9 +480,11 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
             <span class={s.sourceLabel}>{doc.source.label}</span>
           )}
         </div>
-        <h1 class={s.intent}>{replay.intent.text}</h1>
+        {view.intentText && <h1 class={s.intent}>{view.intentText}</h1>}
         <div class={s.controls}>
-          <span class={s.sourceMark}>{SOURCE_MARK[replay.intent.source]}</span>
+          {(SOURCE_MARK[view.intentSource as keyof typeof SOURCE_MARK] || view.intentSource) && (
+            <span class={s.sourceMark}>{SOURCE_MARK[view.intentSource as keyof typeof SOURCE_MARK] || view.intentSource}</span>
+          )}
           <div class={s.segmented} role="group" aria-label="Depth">
             {DEPTHS.map((x) => (
               <button key={x} aria-pressed={depth === x} class={depth === x ? s.segOn : s.seg} onClick={() => setDepth(x)}>
@@ -527,8 +531,8 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
 
       {diagramAvailable && showDiagram && (
         <Diagram
-          source={replay.diagram.mermaid}
-          title={replay.diagram.title}
+          source={view.diagramMermaid}
+          title={view.diagramTitle}
           dark={dark}
           vendorSrc={exported ? './rundown-vendor/mermaid.min.js' : '/vendor/mermaid.min.js'}
           onNode={onNode}
@@ -547,9 +551,11 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
                 >
                   <span class={s.stepNum}>{i + 1}</span>
                   <span class={s.stepTitle}>{st.title}</span>
-                  <span class={s.mark} title={st.importance}>
-                    {IMPORTANCE_MARK[st.importance]}
-                  </span>
+                  {IMPORTANCE_MARK[st.importance as keyof typeof IMPORTANCE_MARK] && (
+                    <span class={s.mark} title={st.importance}>
+                      {IMPORTANCE_MARK[st.importance as keyof typeof IMPORTANCE_MARK]}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -557,15 +563,23 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
         </nav>
 
         <main class={s.main} ref={mainRef}>
-          <div class={s.stepHead}>
-            <span class={s.stepCount}>
-              Step {currentIdx + 1} of {steps.length} · <span title={current.importance}>{IMPORTANCE_MARK[current.importance]}</span>
-            </span>
-            <h2 class={s.stepHeading}>{current.title}</h2>
-            {slots.narrative && <p class={s.summary}>{current.summary}</p>}
-          </div>
+          {current && (
+            <div class={s.stepHead}>
+              <span class={s.stepCount}>
+                Step {currentIdx + 1} of {steps.length}
+                {IMPORTANCE_MARK[current.importance as keyof typeof IMPORTANCE_MARK] && (
+                  <>
+                    {' '}
+                    · <span title={current.importance}>{IMPORTANCE_MARK[current.importance as keyof typeof IMPORTANCE_MARK]}</span>
+                  </>
+                )}
+              </span>
+              {current.title && <h2 class={s.stepHeading}>{current.title}</h2>}
+              {slots.narrative && current.summary && <p class={s.summary}>{current.summary}</p>}
+            </div>
+          )}
 
-          {citedFiles.map((f) => renderFile(f, cited.get(f.path)!, true))}
+          {current && citedFiles.map((f) => renderFile(f, cited.get(f.path)!, true))}
 
           {otherFiles.length > 0 && (
             <div class={s.others}>
@@ -595,17 +609,19 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
             </div>
           )}
 
-          <div class={s.stepFoot}>
-            <button class={s.textButton} disabled={currentIdx === 0} onClick={() => selectStep(steps[currentIdx - 1])}>
-              ← Previous
-            </button>
-            <button class={s.textButton} onClick={() => copyForAgent(current)} title="Copies this step with any text you have selected">
-              Copy for agent
-            </button>
-            <button class={s.textButton} disabled={currentIdx === steps.length - 1} onClick={() => selectStep(steps[currentIdx + 1])}>
-              Next →
-            </button>
-          </div>
+          {current && (
+            <div class={s.stepFoot}>
+              <button class={s.textButton} disabled={currentIdx === 0} onClick={() => selectStep(steps[currentIdx - 1])}>
+                ← Previous
+              </button>
+              <button class={s.textButton} onClick={() => copyForAgent(current)} title="Copies this step with any text you have selected">
+                Copy for agent
+              </button>
+              <button class={s.textButton} disabled={currentIdx === steps.length - 1} onClick={() => selectStep(steps[currentIdx + 1])}>
+                Next →
+              </button>
+            </div>
+          )}
         </main>
 
         <aside class={s.rail} aria-label="Dependencies, tests, and questions">
@@ -622,10 +638,10 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
                   deps.map((dep) => (
                     <div class={s.railItem} key={dep.name}>
                       <div class={s.depName}>
-                        <code>{dep.name}</code> <span class={s.muted}>{dep.change}</span>
+                        {dep.name && <code>{dep.name}</code>} {dep.change && <span class={s.muted}>{dep.change}</span>}
                       </div>
-                      <p class={s.railText}>{dep.why}</p>
-                      <Cite ev={dep.evidence} />
+                      {dep.why && <p class={s.railText}>{dep.why}</p>}
+                      {dep.evidence && <Cite ev={dep.evidence} />}
                     </div>
                   ))
                 )}
@@ -637,43 +653,45 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
                 ) : (
                   tests.map((t) => (
                     <div class={s.railItem} key={t.file}>
-                      <div class={s.depName}>
-                        <code>{t.file}</code>
-                      </div>
-                      <p class={s.railText}>
-                        <span class={s.noteLabel}>Locks</span> {t.locks}
-                      </p>
+                      <div class={s.depName}>{t.file && <code>{t.file}</code>}</div>
+                      {t.locks && (
+                        <p class={s.railText}>
+                          <span class={s.noteLabel}>Locks</span> {t.locks}
+                        </p>
+                      )}
                       {slots.narrative && t.does_not_cover && (
                         <p class={s.railText}>
                           <span class={s.noteLabel}>Does not cover</span> {t.does_not_cover}
                         </p>
                       )}
-                      <Cite ev={t.evidence} />
+                      {t.evidence && <Cite ev={t.evidence} />}
                     </div>
                   ))
                 )}
               </section>
-              {slots.questions && replay.open_questions.length > 0 && (
+              {slots.questions && view.openQuestions.length > 0 && (
                 <section class={s.railSection}>
                   <h3 class={s.railTitle}>Open questions</h3>
-                  {replay.open_questions.map((q, i) => (
+                  {view.openQuestions.map((q, i) => (
                     <div class={s.railItem} key={i}>
-                      <p class={s.railText}>{q.text}</p>
-                      <Cite ev={q.evidence} />
+                      {q.text && <p class={s.railText}>{q.text}</p>}
+                      {q.evidence && <Cite ev={q.evidence} />}
                     </div>
                   ))}
                 </section>
               )}
-              {slots.functions && replay.functions.length > 0 && (
+              {slots.functions && view.functions.length > 0 && (
                 <section class={s.railSection}>
                   <h3 class={s.railTitle}>Changed functions</h3>
-                  {replay.functions.map((f) => (
-                    <div class={s.railItem} key={`${f.path}:${f.name}`}>
-                      <div class={s.depName}>
-                        <code>{f.name}</code>
-                      </div>
-                      <p class={s.railText}>{f.note}</p>
-                      <Cite ev={f.evidence} />
+                  {view.functions.map((f, i) => (
+                    <div class={s.railItem} key={`${f.path}:${f.name}:${i}`}>
+                      {f.name && (
+                        <div class={s.depName}>
+                          <code>{f.name}</code>
+                        </div>
+                      )}
+                      {f.note && <p class={s.railText}>{f.note}</p>}
+                      {f.evidence && <Cite ev={f.evidence} />}
                     </div>
                   ))}
                 </section>

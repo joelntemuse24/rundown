@@ -152,6 +152,21 @@ a.sourceLabel:hover {
   overflow-x: auto;
 }
 
+.diagramText {
+  max-height: none;
+}
+
+.diagramPlain {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+  max-height: 200px;
+  overflow: auto;
+}
+
 .diagramCanvas :global(g.node),
 .diagramCanvas :global(g.actor) {
   cursor: pointer;
