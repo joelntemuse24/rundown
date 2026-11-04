@@ -1,0 +1,13 @@
+{
+  "title": "fix(context): load Keys under the mutex in Copy",
+  "body": "## Description\n\n`Context.Copy` now loads `c.Keys` and clones it while holding `c.mu.RLock`. `maps.Clone(nil)` returns nil, so the nil map needs no special casing.\n\nFixes #4853\n\n## Motivation / Bug Fixed\n\n`Copy` is documented as the pattern to pass a context to background goroutines. It loaded `c.Keys` before `RLock`, while `Set` stores that field under `Lock` when initializing the map. `go test -race` reports the unsynchronized access.\n\n## How Has This Been Tested?\n\nRegression test added in `context_test.go`:\n- `TestCopyConcurrentWithSet`\n\nRan:\n```text\ngo test -race -count=1 -run 'TestCopyConcurrentWithSet|TestContextCopy$' .\n```\nPASS (1.041s).",
+  "commits": [
+    "fix(context): load Keys under the mutex in Copy"
+  ],
+  "repo": "gin-gonic/gin",
+  "number": 4854,
+  "base": "3b08cd7235bd5ad2f055aa9e38135f111f6c5926",
+  "head": "18ac953cb3a9ac9a790509c97a44abdaa998d823",
+  "merged_at": "2026-09-25T06:01:38Z",
+  "url": "https://github.com/gin-gonic/gin/pull/4854"
+}

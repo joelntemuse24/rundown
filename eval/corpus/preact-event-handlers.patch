@@ -1,0 +1,150 @@
+diff --git a/compat/src/suspense.js b/compat/src/suspense.js
+index 1e8f780529..3de0567817 100644
+--- a/compat/src/suspense.js
++++ b/compat/src/suspense.js
+@@ -1,7 +1,6 @@
+ import { Component, Fragment, createElement, options } from 'preact';
+ import {
+ 	COMPONENT_FORCE,
+-	FORCE_PROPS_REVALIDATE,
+ 	MODE_HYDRATE,
+ 	REF_DETACHED,
+ 	UNDEFINED,
+@@ -89,10 +88,6 @@ function detachedClone(vnode, detachedParent, parentDom) {
+ 
+ function removeOriginal(vnode, detachedParent, originalParent) {
+ 	if (vnode && originalParent) {
+-		if (typeof vnode.type == 'string') {
+-			vnode._flags |= FORCE_PROPS_REVALIDATE;
+-		}
+-
+ 		vnode._original = null;
+ 		vnode._children =
+ 			vnode._children &&
+diff --git a/compat/test/browser/suspense.test.jsx b/compat/test/browser/suspense.test.jsx
+index f5dc925c82..a8e46a2253 100644
+--- a/compat/test/browser/suspense.test.jsx
++++ b/compat/test/browser/suspense.test.jsx
+@@ -3179,7 +3179,6 @@ describe('suspense', () => {
+ 		await resolve(() => <div>b1</div>);
+ 		rerender();
+ 
+-		// Unmount resets `_listeners` while the parked DOM keeps its listeners
+ 		const [Lazy2, resolve2] = createLazy();
+ 		setChild(<Lazy2 />);
+ 		rerender();
+diff --git a/src/constants.js b/src/constants.js
+index b702e7f90b..4647600d1c 100644
+--- a/src/constants.js
++++ b/src/constants.js
+@@ -7,8 +7,6 @@ export const MODE_SUSPENDED = 1 << 7;
+ export const INSERT_VNODE = 1 << 2;
+ /** Indicates a VNode has been matched with another VNode in the diff */
+ export const MATCHED = 1 << 1;
+-/** Indicates that this vnode has been unmounted before indicating the loss of event listeners */
+-export const FORCE_PROPS_REVALIDATE = 1 << 0;
+ /** The vnode's ref was detached while its subtree was parked by Suspense */
+ export const REF_DETACHED = 1 << 3;
+ 
+diff --git a/src/diff/index.js b/src/diff/index.js
+index f2005a5fd1..7bbed6cd41 100644
+--- a/src/diff/index.js
++++ b/src/diff/index.js
+@@ -6,7 +6,6 @@ import {
+ 	COMPONENT_PROCESSING_EXCEPTION,
+ 	EMPTY_ARR,
+ 	EMPTY_OBJ,
+-	FORCE_PROPS_REVALIDATE,
+ 	MATHML_TOKEN_ELEMENTS,
+ 	MATH_NAMESPACE,
+ 	MODE_HYDRATE,
+@@ -640,7 +639,6 @@ function diffElementNodes(
+ 
+ 		// During hydration, props are not diffed at all (including dangerouslySetInnerHTML)
+ 		// @TODO we should warn in debug mode when props don't match here.
+-		const shouldRevalidateProps = oldVNode._flags & FORCE_PROPS_REVALIDATE;
+ 		for (i in newProps) {
+ 			value = newProps[i];
+ 			if (i == 'children') {
+@@ -653,7 +651,7 @@ function diffElementNodes(
+ 				checked = value;
+ 			} else if (
+ 				(!isHydrating || typeof value == 'function') &&
+-				(oldProps[i] !== value || (shouldRevalidateProps && value != NULL))
++				oldProps[i] !== value
+ 			) {
+ 				setProperty(dom, i, value, oldProps[i], namespace);
+ 			}
+@@ -812,10 +810,7 @@ export function unmount(vnode, parentVNode, skipRemove) {
+ 		removeNode(r);
+ 	}
+ 
+-	if ((r = vnode._dom)) {
+-		if (!skipRemove) removeNode(r);
+-		if (r._listeners) r._listeners = NULL;
+-	}
++	if (!skipRemove) removeNode(vnode._dom);
+ 
+ 	vnode._dom = vnode._component = vnode._parent = NULL;
+ }
+diff --git a/src/diff/props.js b/src/diff/props.js
+index 06fd251eae..8a808a49f2 100644
+--- a/src/diff/props.js
++++ b/src/diff/props.js
+@@ -81,8 +81,7 @@ export function setProperty(dom, name, value, oldValue, namespace) {
+ 				eventProxies[name] || (eventProxies[name] = createEventProxy(name));
+ 			// The attach time belongs to the listener, not to the handler: one
+ 			// function can back several listeners that were attached at different
+-			// times. It lives outside `_listeners`, which unmount resets even when
+-			// a re-suspended Suspense boundary keeps the DOM and its listeners.
++			// times.
+ 			(dom._attached || (dom._attached = {}))[name] = eventClock;
+ 			useCapture = name != (name = name.replace(CAPTURE_REGEX, '$1'));
+ 
+diff --git a/src/internal.d.ts b/src/internal.d.ts
+index fc748de237..65e9382a9e 100644
+--- a/src/internal.d.ts
++++ b/src/internal.d.ts
+@@ -121,7 +121,7 @@ export interface PreactElement extends preact.ContainerNode {
+ 	_children?: VNode<any> | null;
+ 	/** Event listeners to support event delegation */
+ 	_listeners?: Record<string, (e: Event) => void>;
+-	/** Event clock value at which each listener was attached, kept when `_listeners` is reset on unmount */
++	/** Event clock value at which each listener was attached */
+ 	_attached?: Record<string, number>;
+ }
+ 
+diff --git a/test/browser/events.test.jsx b/test/browser/events.test.jsx
+index 01b235eb4b..59b61b417b 100644
+--- a/test/browser/events.test.jsx
++++ b/test/browser/events.test.jsx
+@@ -148,6 +148,29 @@ describe('event handling', () => {
+ 		expect(click).toHaveBeenCalledWith(1);
+ 	});
+ 
++	it('should preserve default prevention when an option unmounts its list', () => {
++		const onListMouseDown = vi.fn(e => e.preventDefault());
++		const onOptionMouseDown = vi.fn(() => render(null, scratch));
++		render(
++			<ul onMouseDown={onListMouseDown}>
++				<li onMouseDown={onOptionMouseDown}>Choose address</li>
++			</ul>,
++			scratch
++		);
++		const option = scratch.querySelector('li');
++		const event = new MouseEvent('mousedown', {
++			bubbles: true,
++			cancelable: true
++		});
++
++		option.dispatchEvent(event);
++
++		expect(onOptionMouseDown).toHaveBeenCalledOnce();
++		expect(option.isConnected).toBe(false);
++		expect(onListMouseDown).toHaveBeenCalledOnce();
++		expect(event.defaultPrevented).toBe(true);
++	});
++
+ 	it('should not invoke an ancestor handler attached while an event bubbles', () => {
+ 		const onAncestorClick = vi.fn();
+ 		const onButtonClick = () => {

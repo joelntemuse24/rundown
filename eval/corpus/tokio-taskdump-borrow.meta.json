@@ -1,0 +1,13 @@
+{
+  "title": "taskdump: release the core borrow before tracing a dump",
+  "body": "Fixes #8391.\n\n`Handle::dump()` on a current-thread runtime holds the scheduler's core borrow while it polls every task, so a task that wakes itself during the dump re-enters `Schedule::schedule` and panics with `RefCell already borrowed`.\n\nDrain the task queue into an owned queue, release the borrow, then trace. Wakes raised during tracing land back in the queue through the normal path and are picked up after the dump. The `inject.is_closed()` early return moves above the drain so a closed runtime cannot drop tasks that were queued when the dump began.\n\n`self_wake_during_tracing_current_thread` in `tests/dump.rs` covers it: without the change it panics at `current_thread/mod.rs:722`, with it the full dump suite passes. `rustfmt --check --edition 2021` is clean on both touched files.\n\nAn alternative was to use `try_borrow_mut` and skip a task that is mid-schedule, but that can drop a wake, which is the same bug in a quieter form.\n",
+  "commits": [
+    "taskdump: release the core borrow before tracing a dump"
+  ],
+  "repo": "tokio-rs/tokio",
+  "number": 8728,
+  "base": "b980c95d4755697ee376f5e19b95c328e173e304",
+  "head": "60bc59ddac34d8c0773cf38a04c98c7cf82e357d",
+  "merged_at": "2026-10-27T13:20:10Z",
+  "url": "https://github.com/tokio-rs/tokio/pull/8728"
+}

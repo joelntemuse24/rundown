@@ -1,0 +1,13 @@
+{
+  "title": "docs: correct crossed names in the emeritus triagers list",
+  "body": "Two entries in the **Emeritus Triagers** list have each other's names attached.\n\n- `lekanikotun` is listed as **Troy Goode** — that is the name of `troygoode`, who is correctly listed under *TC emeriti members* further up the same file.\n- `marsonya` is listed as **Lekan Ikotun** — which is `lekanikotun`'s name, not theirs.\n\nBoth accounts already appear in the project, so I checked how each one is rendered elsewhere before changing anything:\n\n- PR #4239 (\"request to add Olalekan Ikotun to the triage team\") added the `lekanikotun` entry as `[lekanikotun](https://github.com/lekanikotun) - **Lekan Ikotun**`, which is the name this PR restores.\n- The GitHub profile display name for `marsonya` is *akhil marsonya*, which is what I used for that entry.\n\nSo this restores **Lekan Ikotun** to `lekanikotun` and gives `marsonya` their own profile name instead of someone else's. It also drops the duplicate *Troy Goode* that was sitting in the triager list.\n\nIf you'd rather `marsonya` be a bare handle — the list already does that for `krzysdz` and `niftylettuce` — that is a one-word change and I'm happy to adjust.\n\nDocumentation only, no code touched, so no tests are needed.",
+  "commits": [
+    "docs: correct crossed names in the emeritus triagers list"
+  ],
+  "repo": "expressjs/express",
+  "number": 7529,
+  "base": "a419aa7350389a275ab45fde2e849ed1f02449ef",
+  "head": "7382480e21da43937ec74fb8930c95ef0f67c9e7",
+  "merged_at": "2026-10-17T16:42:03Z",
+  "url": "https://github.com/expressjs/express/pull/7529"
+}

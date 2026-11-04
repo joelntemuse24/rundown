@@ -1,0 +1,15 @@
+{
+  "title": "Isolate useLayoutEffect errors to the throwing component",
+  "body": "When a layout effect or its cleanup throws, the `options._commit` catch clears the render callbacks of every component in the commit queue. Unrelated components that are still mounted lose their layout effects and their `componentDidMount`/`componentDidUpdate`/`setState` callbacks. A second error in the same commit is never reported.\n\nThis change replaces the queue of only the component that threw, with one callback that rethrows the error. `commitRoot` then sends the error to that component's boundary through its usual per-component catch, after every other layout effect has run. That still covers what #2193 needed: core never invokes the thrower's leftover hook states.\n\n> This PR was authored by Opus 5.5.\n",
+  "commits": [
+    "Isolate useLayoutEffect errors to the throwing component",
+    "Trim comments",
+    "Merge branch 'main' into JoviDeCroock/layout-effect-error-isolation"
+  ],
+  "repo": "preactjs/preact",
+  "number": 5321,
+  "base": "697666724ad6f9a992fc61f3b36d94de483602de",
+  "head": "d9a50d799e03b6b6605206e7426ef33c6867a8ad",
+  "merged_at": "2026-10-23T15:54:36Z",
+  "url": "https://github.com/preactjs/preact/pull/5321"
+}

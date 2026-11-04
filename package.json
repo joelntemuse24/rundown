@@ -17,6 +17,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "serve": "tsx src/cli.ts serve",
     "fixture": "tsx src/cli.ts --fixture fixtures/sample.patch",
+    "eval": "tsx eval/run.ts",
     "start": "node dist/cli.js serve",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test": "vite build --config web/vite.config.ts --logLevel warn && vitest run"

@@ -1,0 +1,17 @@
+{
+  "title": "fix: reset skipped-nodes stack on getValue entry to prevent slice overflow panic [#4818]",
+  "body": "Fixes #4818\n\n## Root cause\n\nWith `HandleMethodNotAllowed = true`, `handleHTTPRequest` calls `getValue`\nonce per method tree in the `HandleMethodNotAllowed` loop, reusing the\nsame `c.skippedNodes` stack from the pooled Context. `getValue` pushes\nentries onto the stack via a raw reslice (`[:index+1]`) that cannot grow\npast `engine.maxSections`. Without resetting the stack on entry, residue\nfrom a previous tree accumulates until the next reslice exceeds capacity\nand panics with \"slice bounds out of range\".\n\n## Fix\n\nReset `*skippedNodes = (*skippedNodes)[:0]` at the top of `getValue` so\nevery call starts with an empty stack. This is the single point that\ncovers all callers, including the `HandleMethodNotAllowed` loop.\n\n## Tests\n\n- `TestIssue4818_skippedNodesOverflow_Panic`: original repro from the\n  issue — POST to a route that causes skippedNodes residue to exceed\n  `maxSections` capacity. Confirms no panic and 404 (correct).\n- `TestIssue4818_MethodNotAllowedStillWorks`: PATCH a path that only\n  has a GET route, confirming the `HandleMethodNotAllowed` loop still\n  produces a correct 405 with Allow header.\n- `TestIssue4818_MethodNotAllowedManyTrees`: stress test with 9 method\n  trees targeting a single GET-only path, verifying no overflow.",
+  "commits": [
+    "fix: reset skipped-nodes stack on getValue entry to prevent slice overflow panic [#4818]",
+    "test: add regression test for getValue skipped-nodes overflow panic [#4818]",
+    "Merge branch 'master' into fix/skippednodes-overflow",
+    "test(gin): consolidate routing regression tests",
+    "Merge branch 'master' into fix/skippednodes-overflow"
+  ],
+  "repo": "gin-gonic/gin",
+  "number": 4819,
+  "base": "d8f2d588d7573b3438cfc95b7a47f9ec8966273c",
+  "head": "2c2068ff3dc45b128962514179f075bc4a70be43",
+  "merged_at": "2026-09-19T13:11:33Z",
+  "url": "https://github.com/gin-gonic/gin/pull/4819"
+}

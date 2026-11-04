@@ -1,0 +1,13 @@
+{
+  "title": "#2396: Add cobra unique args validator",
+  "body": "#2396: Add cobra unique args validator `NoDuplicateArgs`",
+  "commits": [
+    "#2396: Add cobra unique args validator"
+  ],
+  "repo": "spf13/cobra",
+  "number": 2397,
+  "base": "f2878bab8c96afd6e36968af96343b35dbb82a82",
+  "head": "fbf2bdf5304548e4348c89b92e0e8067834c26fe",
+  "merged_at": "2026-04-25T23:07:42Z",
+  "url": "https://github.com/spf13/cobra/pull/2397"
+}

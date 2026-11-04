@@ -1,0 +1,87 @@
+diff --git a/tokio/src/runtime/scheduler/current_thread/mod.rs b/tokio/src/runtime/scheduler/current_thread/mod.rs
+index 83839d042a0..3efd673586d 100644
+--- a/tokio/src/runtime/scheduler/current_thread/mod.rs
++++ b/tokio/src/runtime/scheduler/current_thread/mod.rs
+@@ -593,26 +593,31 @@ impl Handle {
+                 Some(CurrentThread(context)) if Arc::ptr_eq(self, &context.handle) => context,
+                 _ => return,
+             };
+-            let mut maybe_core = context.core.borrow_mut();
+-            let core = if let Some(core) = maybe_core.as_mut() {
+-                core
+-            } else {
+-                return;
+-            };
+-            let local = &mut core.tasks;
+-
+             if self.shared.inject.is_closed() {
+                 return;
+             }
+ 
+-            traces = trace_current_thread(&self.shared.owned, local, &self.shared.inject)
++            // Move the local queue out of the scheduler core and drop the borrow
++            // before polling anything. Tracing polls tasks, and a task that wakes
++            // itself while being polled calls `schedule`, which borrows the core
++            // again. Holding this borrow across the poll panics with
++            // "RefCell already borrowed".
++            let mut local = VecDeque::new();
++            {
++                let mut maybe_core = context.core.borrow_mut();
++                let core = if let Some(core) = maybe_core.as_mut() {
++                    core
++                } else {
++                    return;
++                };
++                local.append(&mut core.tasks);
++            }
++
++            traces = trace_current_thread(&self.shared.owned, &mut local, &self.shared.inject)
+                 .into_iter()
+                 .map(|(id, trace)| dump::Task::new(id, trace))
+                 .collect();
+ 
+-            // Avoid double borrow panic
+-            drop(maybe_core);
+-
+             // Taking a taskdump could wakes every task, but we probably don't want
+             // the `yield_now` vector to be that large under normal circumstances.
+             // Therefore, we free its allocation.
+diff --git a/tokio/tests/dump.rs b/tokio/tests/dump.rs
+index 6f43695a7d2..59926d87a32 100644
+--- a/tokio/tests/dump.rs
++++ b/tokio/tests/dump.rs
+@@ -203,6 +203,34 @@ fn notified_during_tracing() {
+     });
+ }
+ 
++/// A task that wakes itself while the dumper is polling it must not panic.
++///
++/// Taking a dump polls each task. Waking from inside that poll is legal, and
++/// the wake goes through `Schedule::schedule`, which borrows the scheduler
++/// core. If the dump holds that borrow across the poll it panics with
++/// "RefCell already borrowed" and takes the runtime down with it.
++#[test]
++fn self_wake_during_tracing_current_thread() {
++    let rt = runtime::Builder::new_current_thread()
++        .enable_all()
++        .build()
++        .unwrap();
++
++    rt.block_on(async {
++        let task = tokio::spawn(std::future::poll_fn(|cx| {
++            if Handle::is_tracing() {
++                cx.waker().wake_by_ref();
++            }
++            std::task::Poll::<()>::Pending
++        }));
++
++        tokio::task::yield_now().await;
++        let _dump = Handle::current().dump().await;
++
++        task.abort();
++    });
++}
++
+ /// Regression tests for the scheduler's idle bookkeeping across a dump.
+ ///
+ /// Requesting a dump wakes every worker thread directly, without going through

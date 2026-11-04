@@ -63,14 +63,14 @@ Human invocations exit 1 when generation fails. `rundown hook` always exits 0 an
 | `RUNDOWN_CACHE_DIR` | Cache location. Default `~/.cache/rundown` |
 | `RUNDOWN_URL` | For hooks: the server to post to |
 
-Replays live in `~/.cache/rundown/<id>.json` with their facts and canonical diff. The cache key is diff hash + schema version + model id, so the same diff replays for free. Token counts per call are in `~/.cache/rundown/logs/<diff_hash>.json`.
+Replays live in `~/.cache/rundown/<id>.json` with their facts and canonical diff. The cache key is diff hash + schema version + prompt version + model id, so the same diff replays for free, and editing the prompt invalidates old entries instead of serving them. Token counts per call are in `~/.cache/rundown/logs/<diff_hash>.json`.
 
 ## How a replay is made
 
 1. **Facts** (`src/facts.ts`): files, added/removed imports, manifest dependency changes, test files, touched functions, and call edges, extracted statically from the diff (conservative regexes for JS/TS, Python, Go, Rust, Ruby). No model.
-2. **Model** (`src/prompt.ts`, `src/model.ts`): one call with the fixed system prompt, the facts, PR title/body and commit subjects, and the diff truncated to 80k characters (manifests and tests kept whole).
+2. **Model** (`src/prompt.ts`, `src/model.ts`): one call with the fixed system prompt, the facts, PR title/body and commit subjects, and the diff truncated to 80k characters (manifests and tests kept whole). Which files were dropped or summarised is stored on the replay and shown to the reader.
 3. **Model output** (`src/schema.ts`, `src/generate.ts`): the reply is stored as parsed JSON, with no validation and no rewriting. A replay fails only when the reply is not JSON. That gets one repair call; a second unparseable reply stores no replay. The page shows a missing field as nothing, and a diagram Mermaid cannot draw as plain text.
-4. **Viewer** (`web/`): a pure function of the stored JSON, the depth, and the diff. Shallow, median, and deep are views over one document, so switching depth never calls the model.
+4. **Viewer** (`web/`): a pure function of the stored JSON, the depth, and the diff. Shallow, median, and deep are views over one document, so switching depth never calls the model. A citation outside every hunk is drawn muted and counted in the footer; the stored JSON is unchanged.
 
 ## HTTP
 
@@ -112,7 +112,24 @@ pnpm test        # builds the viewer, then runs the unit and server tests
 pnpm typecheck
 pnpm serve       # server from source on 127.0.0.1:5200
 pnpm dev:web     # Vite dev server on 5201, proxying the API to 5200
+pnpm eval        # scores the corpus against the configured model; costs model calls
 ```
+
+## Eval
+
+`eval/corpus/` holds 23 public pull requests saved as patches at the merge-base and head SHAs they were taken from, with their title, body, and commit subjects. The spread covers a dependency bump, a docs change, tests-only, a multi-file refactor, a new feature, a new crate, and one PR big enough to hit the 80k truncation; there are cases in JavaScript/TypeScript, Python, Go, Rust, and Ruby.
+
+`pnpm eval` runs each case through `buildMessages` and the configured model with no cache, writes `eval/out/<date>-<model>.json`, and prints a one-screen summary. Everything it scores is computed with no model:
+
+- JSON parsed on the first attempt, and after the one repair call.
+- The share of `path:line` evidence that lands inside a hunk.
+- Whether dependency, function, and test names come from the closed sets `limitsFor` prints.
+- Shape: 3 to 8 steps, at most two critical, `logic.step_id` pointing at a real step, a diagram only when `hasChain` says so.
+- Prompt and completion tokens per case.
+
+`eval/run.ts` is not part of `pnpm test` because it costs calls. `test/eval.test.ts` runs the same scorer against `fixtures/sample.replay.json`, so CI catches a scorer that drifts. `pnpm eval --dry <dir>` scores saved `<case>.json` replies with no model calls.
+
+A change to `SYSTEM_PROMPT` or `SCHEMA_TEXT` ships with an eval run in its pull request, comparing scores before and after. `PROMPT_VERSION` is the first eight hex of a hash of those two strings, so editing either one is a cache miss rather than a stale replay.
 
 ## Not in v1
 

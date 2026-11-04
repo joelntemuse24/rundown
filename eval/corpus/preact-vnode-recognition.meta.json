@@ -1,0 +1,18 @@
+{
+  "title": "Harden vnode recognition",
+  "body": "this makes use of the fact that v11 can use symbols\n\nThe challenge becomes versioning them together.\n",
+  "commits": [
+    "Harden vnode recognition",
+    "Shorten vnode symbol registry key",
+    "Merge branch 'main' into harden-vnode-recognition",
+    "Update Signals and SSR for symbol-marked VNodes",
+    "fix: avoid String coercion when diffing symbol-marked VNodes",
+    "chore: restore existing render-to-string peer range"
+  ],
+  "repo": "preactjs/preact",
+  "number": 5335,
+  "base": "1c0f1f82340f096e5850386d617d6a3885693001",
+  "head": "aa9775892996c74af0bd99046e9bdfeca2041a22",
+  "merged_at": "2026-10-27T10:57:02Z",
+  "url": "https://github.com/preactjs/preact/pull/5335"
+}

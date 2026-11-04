@@ -1,0 +1,14 @@
+{
+  "title": "Preserve event handlers on unmounted nodes",
+  "body": "#4853 clears `_listeners` on unmount, which can happen while an event is still bubbling. Selecting an autocomplete option can remove its list before the list’s `mousedown` handler calls `preventDefault()`, unexpectedly blurring the input.\n\nKeep the handlers on detached nodes, matching native DOM behavior and Preact 10. This also removes the Suspense prop revalidation that was only needed to restore cleared handlers.\n\nThe trade-off from #3668 remains: retaining a detached node can keep its handlers and captured state alive.",
+  "commits": [
+    "Preserve event handlers on unmounted nodes",
+    "Merge branch 'main' into preserve-unmounted-event-handlers"
+  ],
+  "repo": "preactjs/preact",
+  "number": 5349,
+  "base": "4bfd080333c55d7df795f2815d373ed93ceadf79",
+  "head": "91315713cdcd2212a056183a59eb3122e43cd7af",
+  "merged_at": "2026-11-04T20:09:57Z",
+  "url": "https://github.com/preactjs/preact/pull/5349"
+}

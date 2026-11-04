@@ -1,0 +1,334 @@
+diff --git a/crates/globset/src/glob.rs b/crates/globset/src/glob.rs
+index ac1dd6db1..8f8480490 100644
+--- a/crates/globset/src/glob.rs
++++ b/crates/globset/src/glob.rs
+@@ -42,6 +42,8 @@ pub(crate) enum MatchStrategy {
+     /// Namely, if the extension matches, then a full regex search is still
+     /// required.
+     RequiredExtension(String),
++    /// A regex that only needs to inspect the final path component.
++    BasenameRegex(String),
+     /// A regex needs to be used for matching.
+     Regex,
+ }
+@@ -61,6 +63,8 @@ impl MatchStrategy {
+             MatchStrategy::Suffix { suffix, component }
+         } else if let Some(ext) = pat.required_ext() {
+             MatchStrategy::RequiredExtension(ext)
++        } else if let Some(re) = pat.basename_regex() {
++            MatchStrategy::BasenameRegex(re)
+         } else {
+             MatchStrategy::Regex
+         }
+@@ -196,6 +200,9 @@ impl GlobStrategic {
+                 let ext = ext.as_bytes();
+                 &*candidate.ext == ext && self.re.is_match(byte_path)
+             }
++            MatchStrategy::BasenameRegex(_) => {
++                self.re.is_match(candidate.basename_for_regex())
++            }
+             MatchStrategy::Regex => self.re.is_match(byte_path),
+         }
+     }
+@@ -299,8 +306,11 @@ impl Glob {
+     #[cfg(test)]
+     fn compile_strategic_matcher(&self) -> GlobStrategic {
+         let strategy = MatchStrategy::new(self);
+-        let re =
+-            new_regex(&self.re).expect("regex compilation shouldn't fail");
++        let pattern = match &strategy {
++            MatchStrategy::BasenameRegex(re) => re,
++            _ => &self.re,
++        };
++        let re = new_regex(pattern).expect("regex compilation shouldn't fail");
+         GlobStrategic { strategy, re }
+     }
+ 
+@@ -508,9 +518,6 @@ impl Glob {
+     /// doesn't *always* match when a file path has a basename of `foo`. e.g.,
+     /// `foo` doesn't match `abc/foo`.
+     fn basename_tokens(&self) -> Option<&[Token]> {
+-        if self.opts.case_insensitive {
+-            return None;
+-        }
+         let start = match *self.tokens.get(0)? {
+             Token::RecursivePrefix => 1,
+             _ => {
+@@ -540,10 +547,15 @@ impl Glob {
+                 | Token::RecursiveZeroOrMore => {
+                     return None;
+                 }
+-                Token::Class { .. } | Token::Alternates(..) => {
+-                    // We *could* be a little smarter here, but either one
+-                    // of these is going to prevent our literal optimizations
+-                    // anyway, so give up.
++                Token::Class { negated, ref ranges } => {
++                    let contains_slash = ranges
++                        .iter()
++                        .any(|&(start, end)| start <= '/' && '/' <= end);
++                    if contains_slash != negated {
++                        return None;
++                    }
++                }
++                Token::Alternates(..) => {
+                     return None;
+                 }
+             }
+@@ -557,6 +569,9 @@ impl Glob {
+     /// The basic format of these patterns is `**/{literal}`, where `{literal}`
+     /// does not contain a path separator.
+     fn basename_literal(&self) -> Option<String> {
++        if self.opts.case_insensitive {
++            return None;
++        }
+         let tokens = self.basename_tokens()?;
+         let mut lit = String::new();
+         for t in tokens {
+@@ -565,6 +580,12 @@ impl Glob {
+         }
+         Some(lit)
+     }
++
++    /// Returns a regex for the basename when it determines the whole match.
++    fn basename_regex(&self) -> Option<String> {
++        let tokens = self.basename_tokens()?;
++        Some(Tokens::to_regex_with(&self.opts, tokens))
++    }
+ }
+ 
+ impl<'a> GlobBuilder<'a> {
+@@ -602,7 +623,7 @@ impl<'a> GlobBuilder<'a> {
+             let tokens = p.branches.pop().unwrap();
+             Ok(Glob {
+                 glob: self.glob.to_string(),
+-                re: tokens.to_regex_with(&self.opts),
++                re: Tokens::to_regex_with(&self.opts, &tokens),
+                 opts: self.opts,
+                 tokens,
+             })
+@@ -670,7 +691,7 @@ impl Tokens {
+     /// Convert this pattern to a string that is guaranteed to be a valid
+     /// regular expression and will represent the matching semantics of this
+     /// glob pattern and the options given.
+-    fn to_regex_with(&self, options: &GlobOptions) -> String {
++    fn to_regex_with(options: &GlobOptions, tokens: &[Token]) -> String {
+         let mut re = String::new();
+         re.push_str("(?-u)");
+         if options.case_insensitive {
+@@ -679,18 +700,17 @@ impl Tokens {
+         re.push('^');
+         // Special case. If the entire glob is just `**`, then it should match
+         // everything.
+-        if self.len() == 1 && self[0] == Token::RecursivePrefix {
++        if tokens.len() == 1 && tokens[0] == Token::RecursivePrefix {
+             re.push_str(".*");
+             re.push('$');
+             return re;
+         }
+-        self.tokens_to_regex(options, &self, &mut re);
++        Self::tokens_to_regex(options, tokens, &mut re);
+         re.push('$');
+         re
+     }
+ 
+     fn tokens_to_regex(
+-        &self,
+         options: &GlobOptions,
+         tokens: &[Token],
+         re: &mut String,
+@@ -744,7 +764,7 @@ impl Tokens {
+                     let mut parts = vec![];
+                     for pat in patterns {
+                         let mut altre = String::new();
+-                        self.tokens_to_regex(options, &pat, &mut altre);
++                        Self::tokens_to_regex(options, &pat, &mut altre);
+                         if !altre.is_empty() || options.empty_alternates {
+                             parts.push(altre);
+                         }
+@@ -1430,6 +1450,15 @@ mod tests {
+     matches!(matchrec25, "test/**", "test/one/two");
+     matches!(matchrec26, "some/*/needle.txt", "some/one/needle.txt");
+ 
++    matches!(basename_empty, "**/*", "", SLASHLIT);
++    matches!(basename_trailing_separator, "**/*", "foo/", SLASHLIT);
++    matches!(basename_parent_component, "**/.*", "foo/..", SLASHLIT);
++    matches!(basename_class, "**/*.py[cod]", "src/module.pyc", SLASHLIT);
++    matches!(basename_negated_class, "**/[!/]", "foo/a", SLASHLIT);
++    matches!(class_includes_separator, "**/[!a]", "/", SLASHLIT);
++    matches!(class_separator_range, "**/[.-0]", "/", SLASHLIT);
++    nmatches!(basename_class_miss, "**/*.py[cod]", "src/module.pyi", SLASHLIT);
++
+     matches!(matchrange1, "a[0-9]b", "a0b");
+     matches!(matchrange2, "a[0-9]b", "a9b");
+     matches!(matchrange3, "a[!0-9]b", "a_b");
+@@ -1631,7 +1660,12 @@ mod tests {
+         "**/foo",
+         Some(&*vec![Literal('f'), Literal('o'), Literal('o'),])
+     );
+-    basetokens!(extract_basetoks2, "**/foo", None, CASEI);
++    basetokens!(
++        extract_basetoks2,
++        "**/foo",
++        Some(&*vec![Literal('f'), Literal('o'), Literal('o'),]),
++        CASEI
++    );
+     basetokens!(
+         extract_basetoks3,
+         "**/foo",
+diff --git a/crates/globset/src/lib.rs b/crates/globset/src/lib.rs
+index 1145753ff..24fd6b105 100644
+--- a/crates/globset/src/lib.rs
++++ b/crates/globset/src/lib.rs
+@@ -475,6 +475,7 @@ impl GlobSet {
+         let mut prefixes = MultiStrategyBuilder::new();
+         let mut suffixes = MultiStrategyBuilder::new();
+         let mut required_exts = RequiredExtensionStrategyBuilder::new();
++        let mut base_regexes = MultiStrategyBuilder::new();
+         let mut regexes = MultiStrategyBuilder::new();
+         for (i, p) in it.enumerate() {
+             len += 1;
+@@ -502,6 +503,9 @@ impl GlobSet {
+                 MatchStrategy::RequiredExtension(ext) => {
+                     required_exts.add(i, ext, p.regex().to_owned());
+                 }
++                MatchStrategy::BasenameRegex(re) => {
++                    base_regexes.add(i, re);
++                }
+                 MatchStrategy::Regex => {
+                     debug!(
+                         "glob `{:?}` converted to regex: `{:?}`",
+@@ -514,16 +518,18 @@ impl GlobSet {
+         }
+         debug!(
+             "built glob set; {} literals, {} basenames, {} extensions, \
+-                {} prefixes, {} suffixes, {} required extensions, {} regexes",
++             {} prefixes, {} suffixes, {} required extensions, \
++             {} basename regexes, {} regexes",
+             lits.literals.len(),
+             base_lits.literals.len(),
+             exts.0.len(),
+             prefixes.literals.len(),
+             suffixes.literals.len(),
+             required_exts.0.len(),
++            base_regexes.literals.len(),
+             regexes.literals.len()
+         );
+-        let mut strats = Vec::with_capacity(7);
++        let mut strats = Vec::with_capacity(8);
+         // Only add strategies that are populated
+         if !exts.0.is_empty() {
+             strats.push(GlobSetMatchStrategy::Extension(exts));
+@@ -545,6 +551,11 @@ impl GlobSet {
+                 required_exts.build()?,
+             ));
+         }
++        if !base_regexes.is_empty() {
++            let mut set = base_regexes.regex_set()?;
++            set.basename = true;
++            strats.push(GlobSetMatchStrategy::Regex(set));
++        }
+         if !regexes.is_empty() {
+             strats.push(GlobSetMatchStrategy::Regex(regexes.regex_set()?));
+         }
+@@ -641,6 +652,16 @@ impl<'a> Candidate<'a> {
+         if self.path.len() <= max { &*self.path } else { &self.path[..max] }
+     }
+ 
++    /// Returns the final component, including `..` for regex matching.
++    fn basename_for_regex(&self) -> &[u8] {
++        // Literal basename strategies skip `..`, but a regex can match it.
++        if self.basename.is_empty() && self.path.ends_with(b"..") {
++            b".."
++        } else {
++            &self.basename
++        }
++    }
++
+     fn path_suffix(&self, max: usize) -> &[u8] {
+         if self.path.len() <= max {
+             &*self.path
+@@ -950,6 +971,7 @@ impl RequiredExtensionStrategy {
+ struct RegexSetStrategy {
+     matcher: Regex,
+     map: Vec<usize>,
++    basename: bool,
+     // We use a pool of PatternSets to hopefully allocating a fresh one on each
+     // call.
+     //
+@@ -965,15 +987,24 @@ type PatternSetPoolFn =
+     Box<dyn Fn() -> PatternSet + Send + Sync + UnwindSafe + RefUnwindSafe>;
+ 
+ impl RegexSetStrategy {
++    /// Returns the part of the path matched by these regexes.
++    fn haystack<'a>(&self, candidate: &'a Candidate<'_>) -> &'a [u8] {
++        if self.basename {
++            candidate.basename_for_regex()
++        } else {
++            &candidate.path
++        }
++    }
++
+     fn is_match(&self, candidate: &Candidate<'_>) -> bool {
+-        self.matcher.is_match(candidate.path.as_bytes())
++        self.matcher.is_match(self.haystack(candidate))
+     }
+ 
+     fn find_matches(
+         &self,
+         candidate: &Candidate<'_>,
+     ) -> PoolGuard<'_, PatternSet, PatternSetPoolFn> {
+-        let input = regex_automata::Input::new(candidate.path.as_bytes());
++        let input = regex_automata::Input::new(self.haystack(candidate));
+         let mut patset = self.patset.get();
+         patset.clear();
+         self.matcher.which_overlapping_matches(&input, &mut patset);
+@@ -1042,6 +1073,7 @@ impl MultiStrategyBuilder {
+         Ok(RegexSetStrategy {
+             matcher,
+             map: self.map,
++            basename: false,
+             patset: Arc::new(Pool::new(create)),
+         })
+     }
+@@ -1240,6 +1272,41 @@ mod tests {
+         assert!(!set.matches_all("foo.c"));
+     }
+ 
++    #[test]
++    fn basename_regex_with_path_rules() {
++        let globs: Vec<_> = ["**/.venv*", "**/*.py[cod]", "src/*"]
++            .iter()
++            .map(|pattern| {
++                GlobBuilder::new(pattern)
++                    .literal_separator(true)
++                    .build()
++                    .unwrap()
++            })
++            .collect();
++        let set = GlobSet::new(globs).unwrap();
++        assert_eq!(set.matches("src/module.pyc"), vec![1, 2]);
++        assert_eq!(set.matches("src/nested/module.pyc"), vec![1]);
++        assert_eq!(set.matches("src/.venv-new"), vec![0, 2]);
++        assert!(set.matches_all("src/.venv.pyc"));
++        assert!(!set.matches_all("src/nested/.venv.pyc"));
++    }
++
++    #[test]
++    fn basename_regex_parent_component() {
++        let set = GlobSet::new([
++            GlobBuilder::new("**/.*").literal_separator(true).build().unwrap(),
++            Glob::new("**/[.][.]").unwrap(),
++        ])
++        .unwrap();
++        for path in ["..", "foo/..", "foo/bar/.."] {
++            assert!(set.is_match(path), "{path}");
++            assert!(set.matches_all(path), "{path}");
++            assert_eq!(set.matches(path), vec![0, 1], "{path}");
++        }
++        assert!(!set.matches_all("foo/."));
++        assert!(!set.matches_all("foo/a.."));
++    }
++
+     #[test]
+     fn default_set_is_empty_works() {
+         let set: GlobSet = Default::default();

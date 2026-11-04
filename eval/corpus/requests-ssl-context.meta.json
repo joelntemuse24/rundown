@@ -1,0 +1,14 @@
+{
+  "title": "Revert caching a default SSLContext",
+  "body": "This PR reverts the changes from #6667 to the previous behavior. Due to the number of edge cases and concurrency issues we've encountered with this change, we've decided the benefit doesn't currently outweigh the pain to existing infrastructure. We've iterated on a few tries to keep this functionality in place, but are still receiving reports of novel issues with this behavior.\r\n\r\nWe may be able to revisit this in a later version of Requests but we'll need a much more comprehensive test plan.",
+  "commits": [
+    "Revert caching a default SSLContext",
+    "Merge branch 'main' into remove_cached_sslcontext"
+  ],
+  "repo": "psf/requests",
+  "number": 6767,
+  "base": "8ff173b186f135670879db9fbe1e68a6b5209c89",
+  "head": "11d68c17bcd66bd3e2c5137b0a7aad7f59967102",
+  "merged_at": "2025-06-13T16:42:08Z",
+  "url": "https://github.com/psf/requests/pull/6767"
+}
