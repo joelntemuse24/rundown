@@ -1,7 +1,7 @@
 import { Fragment, type ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseDiff, parseEvidence, parseLineRange, type DiffFile } from '../../src/diff';
-import { DEPTH_SLOTS, DEPTHS, citationInDiff, hasChain, presentReplay, visibleSteps, type PresentedStep } from '../../src/schema';
+import { DEPTH_SLOTS, DEPTHS, citationInDiff, hasChain, outsideCitations, presentReplay, visibleSteps, type PresentedStep } from '../../src/schema';
 import { copyText, postGenerate, type Depth, type Doc } from './data';
 import { Diagram } from './Diagram';
 import { CollapsedFile, FileHeader, functionEnd, hunkSpan, HunkView, NOISY, type LongFunction } from './DiffView';
@@ -393,6 +393,8 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
 
   // A citation the model wrote that does not land in a hunk. The stored replay is untouched.
   const outsideDiff = (ev: string) => !citationInDiff(files, ev);
+  // Counted over the whole replay, so a section a depth hides still counts, matching the eval measure.
+  const outsideList = outsideCitations(view, files);
   const Cite = ({ ev }: { ev: string }) => {
     const outside = outsideDiff(ev);
     return (
@@ -406,16 +408,7 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
       </button>
     );
   };
-  const citationCount = (() => {
-    const all = [
-      ...view.dependencies.map((x) => x.evidence),
-      ...view.logic.map((x) => x.evidence),
-      ...view.tests.map((x) => x.evidence),
-      ...view.openQuestions.map((x) => x.evidence),
-      ...view.functions.map((x) => x.evidence),
-    ].filter(Boolean);
-    return all.filter(outsideDiff).length;
-  })();
+  const citationCount = outsideList.length;
 
   // ---------- step column ----------
 
@@ -762,9 +755,9 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
           {facts.files.length} files · base {facts.base ? facts.base.slice(0, 7) : '—'} · head {facts.head ? facts.head.slice(0, 7) : '—'} · {doc.model}
           {doc.prompt_version ? ` · prompt ${doc.prompt_version}` : ''}
           {citationCount > 0 && (
-            <span class={s.footerWarn} data-outside-citations={citationCount}>
+            <span class={s.footerWarn} data-outside-citations={citationCount} title={outsideList.map((x) => x.label).join('\n')}>
               {' '}
-              · {citationCount} {citationCount === 1 ? 'citation' : 'citations'} outside the diff
+              · {citationCount} {citationCount === 1 ? 'citation' : 'citations'} in this replay {citationCount === 1 ? 'points' : 'point'} outside the diff
             </span>
           )}
         </span>

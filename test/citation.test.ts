@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseDiff } from '../src/diff.js';
-import { citationInDiff } from '../src/schema.js';
+import { citationInDiff, outsideCitations, presentReplay } from '../src/schema.js';
 
 const patch = readFileSync(new URL('../fixtures/sample.patch', import.meta.url), 'utf8');
 const files = parseDiff(patch);
@@ -48,5 +48,33 @@ describe('citationInDiff', () => {
     ].filter(Boolean);
     expect(evidence.length).toBeGreaterThan(0);
     expect(evidence.filter((ev: string) => !citationInDiff(files, ev))).toEqual([]);
+    expect(outsideCitations(presentReplay(replay), files)).toEqual([]);
+  });
+});
+
+describe('outsideCitations', () => {
+  const replay: any = JSON.parse(readFileSync(new URL('../fixtures/sample.replay.json', import.meta.url), 'utf8'));
+
+  it('labels each citation with its section and the path:line', () => {
+    const doc = {
+      ...replay,
+      tests: [{ file: 'test/loginLimiter.test.js', locks: 'l', does_not_cover: 'd', evidence: 'test/x.test.js:999' }],
+      functions: [{ path: 'src/middleware/loginLimiter.js', name: 'countAttempt', note: 'n', evidence: 'src/middleware/loginLimiter.js:900' }],
+    };
+    const out = outsideCitations(presentReplay(doc), files);
+    expect(out.map((x) => x.label)).toEqual(['tests: test/x.test.js:999', 'functions: src/middleware/loginLimiter.js:900']);
+    expect(out.map((x) => x.section)).toEqual(['tests', 'functions']);
+  });
+
+  it('counts citations the current depth hides, because the eval counts them too', () => {
+    // functions render only at deep; the count must not shrink with the depth.
+    const doc = { ...replay, functions: [{ path: 'x.js', name: 'f', note: 'n', evidence: 'x.js:5' }] };
+    expect(outsideCitations(presentReplay(doc), files)).toHaveLength(1);
+  });
+
+  it('ignores an empty evidence string and keeps a non-citation as outside', () => {
+    const doc = { ...replay, open_questions: [{ text: 'q', evidence: '' }, { text: 'q2', evidence: 'see the docs' }] };
+    const out = outsideCitations(presentReplay(doc), files);
+    expect(out.map((x) => x.evidence)).toEqual(['see the docs']);
   });
 });
