@@ -14,7 +14,7 @@ import { extractFacts } from '../src/facts.js';
 import { parseModelJson } from '../src/generate.js';
 import { complete } from '../src/model.js';
 import { buildMessages, PROMPT_VERSION, repairMessages } from '../src/prompt.js';
-import { caseFromDiff, formatSummary, parseFirstReply, scoreReply, summarise, type EvalCase, type RunScore } from './score.js';
+import { caseFromDiff, failedScore, formatSummary, parseFirstReply, scoreReply, scoreSavedReply, summarise, type EvalCase, type RunScore } from './score.js';
 
 interface Meta {
   title?: string;
@@ -53,10 +53,8 @@ function scoreSaved(name: string, diff: string): RunScore {
   const { c } = prepared(name, diff);
   const tokens = { prompt: 0, completion: 0 };
   const file = join(dryDir, `${name}.json`);
-  if (!existsSync(file)) return { ...scoreReply(c, {}, tokens, true), parsedFirst: false, parsedAfterRepair: false };
-  const raw = readFileSync(file, 'utf8');
-  const parsed = parseFirstReply(raw);
-  return scoreReply(c, parsed.ok ? parsed.value : {}, tokens, !parsed.ok);
+  if (!existsSync(file)) return failedScore(name, tokens);
+  return scoreSavedReply(c, readFileSync(file, 'utf8'), tokens);
 }
 
 async function scoreLive(name: string, meta: Meta, diff: string, cfg: ReturnType<typeof loadConfig>): Promise<RunScore> {
@@ -72,7 +70,7 @@ async function scoreLive(name: string, meta: Meta, diff: string, cfg: ReturnType
   try {
     return scoreReply(c, parseModelJson(repaired.content), tokens, true);
   } catch {
-    return { ...scoreReply(c, {}, tokens, true), parsedFirst: false, parsedAfterRepair: false };
+    return failedScore(name, tokens);
   }
 }
 
@@ -103,8 +101,7 @@ async function main() {
       process.stderr.write(`${s.evidenceInDiff}/${s.evidenceTotal} evidence\n`);
     } catch (err) {
       // A failing call is a result too, so a broken endpoint never looks like a clean run.
-      const { c } = prepared(name, diff);
-      scores.push({ ...scoreReply(c, {}, { prompt: 0, completion: 0 }, true), parsedFirst: false, parsedAfterRepair: false });
+      scores.push(failedScore(name, { prompt: 0, completion: 0 }));
       process.stderr.write(`call failed: ${(err as Error).message}\n`);
     }
   }

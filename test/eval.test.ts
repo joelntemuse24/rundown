@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { caseFromDiff, formatSummary, parseFirstReply, scoreReply, summarise } from '../eval/score.js';
+import { caseFromDiff, formatSummary, parseFirstReply, scoreReply, scoreSavedReply, summarise } from '../eval/score.js';
 import { extractFacts } from '../src/facts.js';
 
 const patch = readFileSync(new URL('../fixtures/sample.patch', import.meta.url), 'utf8');
@@ -77,5 +77,47 @@ describe('eval scorer', () => {
     const prose = scoreReply(c, {}, tokens, true);
     expect(prose.parsedFirst).toBe(false);
     expect(prose.parsedAfterRepair).toBe(true);
+  });
+
+  it('counts a saved reply that is not JSON as failed, not repaired', () => {
+    const s = scoreSavedReply(c, 'Sure! Here is the replay you asked for.', tokens);
+    expect(s.parsed).toBe(false);
+    expect(s.parsedFirst).toBe(false);
+    expect(s.parsedAfterRepair).toBe(false);
+    expect(s.allowedNamesOk).toBe(false);
+    expect(s.evidenceTotal).toBe(0);
+
+    const good = scoreSavedReply(c, JSON.stringify(replay), tokens);
+    expect(good.parsed).toBe(true);
+    expect(good.parsedFirst).toBe(true);
+  });
+
+  it('counts a missing saved reply as failed', () => {
+    expect(scoreSavedReply(c, null, tokens).parsed).toBe(false);
+  });
+
+  it('reports shares from parsed cases only, and says how many failed', () => {
+    const good = scoreReply(c, replay, tokens, false);
+    const failed = scoreSavedReply(c, 'Sure! Here is the replay you asked for.', tokens);
+    const summary = summarise([good, failed]);
+    expect(summary.cases).toBe(2);
+    expect(summary.failed).toBe(1);
+    expect(summary.evidenceShare).toBe(1);
+    expect(summary.allowedShare).toBe(1);
+    expect(summary.shapeShare).toBe(1);
+    const text = formatSummary(summary, [good, failed]);
+    expect(text).toContain('1 failed');
+    expect(text).toContain('failed: no readable reply');
+  });
+
+  it('says every case failed rather than reporting a perfect run', () => {
+    const a = scoreSavedReply(c, 'prose', tokens);
+    const b = scoreSavedReply(c, null, tokens);
+    const summary = summarise([a, b]);
+    expect(summary.failed).toBe(2);
+    expect(summary.evidenceShare).toBe(0);
+    expect(summary.allowedShare).toBe(0);
+    expect(summary.shapeShare).toBe(0);
+    expect(formatSummary(summary, [a, b])).toContain('2 failed');
   });
 });
