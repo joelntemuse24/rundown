@@ -7,11 +7,20 @@
   "bin": {
     "rundown": "./bin/rundown.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "web/dist",
+    "fixtures",
+    "adapters",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "pnpm run build:web && pnpm run build:server",
+    "prepack": "pnpm build",
     "build:web": "vite build --config web/vite.config.ts",
     "build:server": "tsc -p tsconfig.json",
     "dev:web": "vite --config web/vite.config.ts",

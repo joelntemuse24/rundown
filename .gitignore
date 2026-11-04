@@ -2,5 +2,6 @@ node_modules/
 dist/
 web/dist/
 eval/out/
+*.tgz
 *.tmp
 .DS_Store
