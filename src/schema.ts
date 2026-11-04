@@ -1,3 +1,5 @@
+import type { DiffFile } from './diff.js';
+import { lineInHunks, parseEvidence } from './diff.js';
 import type { Facts } from './facts.js';
 
 export const SCHEMA_VERSION = 1;
@@ -147,4 +149,15 @@ export function presentReplay(raw: unknown): PresentedReplay {
     diagramTitle: text(diagram?.title),
     diagramMermaid: text(diagram?.mermaid),
   };
+}
+
+/**
+ * True when a `path:line` citation lands inside a hunk: on the new side, or on the old side
+ * for a deleted file. View only, so a stored replay keeps whatever the model wrote.
+ */
+export function citationInDiff(files: DiffFile[], evidence: string): boolean {
+  const e = parseEvidence(evidence);
+  if (!e) return false;
+  const f = files.find((x) => x.path === e.path);
+  return !!f && lineInHunks(f, e.line);
 }

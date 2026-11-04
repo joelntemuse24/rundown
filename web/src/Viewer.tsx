@@ -1,7 +1,7 @@
-import type { ComponentChildren } from 'preact';
+import { Fragment, type ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseDiff, parseEvidence, parseLineRange, type DiffFile } from '../../src/diff';
-import { DEPTH_SLOTS, DEPTHS, hasChain, presentReplay, visibleSteps, type PresentedStep } from '../../src/schema';
+import { DEPTH_SLOTS, DEPTHS, citationInDiff, hasChain, presentReplay, visibleSteps, type PresentedStep } from '../../src/schema';
 import { copyText, postGenerate, type Depth, type Doc } from './data';
 import { Diagram } from './Diagram';
 import { CollapsedFile, FileHeader, functionEnd, hunkSpan, HunkView, NOISY, type LongFunction } from './DiffView';
@@ -371,7 +371,14 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
   }, []);
 
   const stale = doc.source.kind === 'pr' && doc.current_head && facts.head && doc.current_head !== facts.head;
+  const omitted = doc.prompt_coverage?.omitted ?? [];
+  const summarised = doc.prompt_coverage?.summarised ?? [];
   const [regen, setRegen] = useState('');
+  /** Open a file the model did not see, in the "Files not in this step" list. */
+  const showOmitted = (p: string) => {
+    setRevealed((r) => new Set(r).add(p));
+    setOtherOpen(true);
+  };
   const regenerate = async () => {
     setRegen('Starting…');
     try {
@@ -383,11 +390,32 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
   };
 
   const editorHref = (path: string, line = 1) => (doc.source.kind === 'local' && doc.source.root ? `vscode://file${doc.source.root}/${path}:${line}` : undefined);
-  const Cite = ({ ev }: { ev: string }) => (
-    <button class={s.cite} title={ev} onClick={() => jumpTo(ev)}>
-      {ev}
-    </button>
-  );
+
+  // A citation the model wrote that does not land in a hunk. The stored replay is untouched.
+  const outsideDiff = (ev: string) => !citationInDiff(files, ev);
+  const Cite = ({ ev }: { ev: string }) => {
+    const outside = outsideDiff(ev);
+    return (
+      <button
+        class={outside ? `${s.cite} ${s.citeOutside}` : s.cite}
+        title={outside ? 'This line is not in the diff' : ev}
+        data-outside={outside ? 'true' : undefined}
+        onClick={() => jumpTo(ev)}
+      >
+        {ev}
+      </button>
+    );
+  };
+  const citationCount = (() => {
+    const all = [
+      ...view.dependencies.map((x) => x.evidence),
+      ...view.logic.map((x) => x.evidence),
+      ...view.tests.map((x) => x.evidence),
+      ...view.openQuestions.map((x) => x.evidence),
+      ...view.functions.map((x) => x.evidence),
+    ].filter(Boolean);
+    return all.filter(outsideDiff).length;
+  })();
 
   // ---------- step column ----------
 
@@ -525,6 +553,34 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
               Regenerate
             </button>
             {regen && regen !== 'Starting…' && <span class={s.bannerErr}> {regen}</span>}
+          </div>
+        )}
+        {omitted.length > 0 && (
+          <div class={s.banner}>
+            The model did not see {omitted.length} {omitted.length === 1 ? 'file' : 'files'}:{' '}
+            {omitted.map((p, i) => (
+              <Fragment key={p}>
+                {i > 0 && ', '}
+                <button class={s.bannerFile} onClick={() => showOmitted(p)}>
+                  {p}
+                </button>
+              </Fragment>
+            ))}
+            . Some of this replay may describe only part of the change.
+          </div>
+        )}
+        {summarised.length > 0 && (
+          <div class={`${s.banner} ${s.bannerQuiet}`}>
+            {summarised.length === 1 ? 'One large new file was' : `${summarised.length} large new files were`} shown to the model as signatures only:{' '}
+            {summarised.map((p, i) => (
+              <Fragment key={p}>
+                {i > 0 && ', '}
+                <button class={s.bannerFile} onClick={() => showOmitted(p)}>
+                  {p}
+                </button>
+              </Fragment>
+            ))}
+            .
           </div>
         )}
       </header>
@@ -704,6 +760,13 @@ function ReplayView({ doc, defaultDepth, exported }: { doc: Doc; defaultDepth: D
       <footer class={s.footer}>
         <span>
           {facts.files.length} files · base {facts.base ? facts.base.slice(0, 7) : '—'} · head {facts.head ? facts.head.slice(0, 7) : '—'} · {doc.model}
+          {doc.prompt_version ? ` · prompt ${doc.prompt_version}` : ''}
+          {citationCount > 0 && (
+            <span class={s.footerWarn} data-outside-citations={citationCount}>
+              {' '}
+              · {citationCount} {citationCount === 1 ? 'citation' : 'citations'} outside the diff
+            </span>
+          )}
         </span>
         <button class={s.textButtonInline} onClick={() => setHelp(true)}>
           Keyboard: ?
