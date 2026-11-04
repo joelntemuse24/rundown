@@ -7,7 +7,7 @@ import type { DiffFile } from './diff.js';
 import { extractFacts, sha256, type Facts, type FunctionRange } from './facts.js';
 import { fetchPull, parsePrUrl } from './github.js';
 import { complete, type ChatMessage } from './model.js';
-import { buildMessages, repairMessages, type PromptContext } from './prompt.js';
+import { buildMessages, PROMPT_VERSION, repairMessages, truncateDiff, type DiffCoverage, type PromptContext } from './prompt.js';
 import { presentReplay, SCHEMA_VERSION } from './schema.js';
 
 export type Status = 'pending' | 'ready' | 'failed';
@@ -21,6 +21,8 @@ export interface Source {
 
 export interface StoredReplay {
   schema_version: number;
+  /** Hash of the prompt text that produced this replay, so a prompt edit is visible and never served from cache. */
+  prompt_version: string;
   id: string;
   key: string;
   status: Status;
@@ -31,6 +33,8 @@ export interface StoredReplay {
   context: PromptContext;
   facts: Facts;
   diff: string;
+  /** Files the model never saw, or saw only as a summary, because the diff was over budget. */
+  prompt_coverage: { omitted: string[]; summarised: string[] };
   /** Parsed model JSON, stored unchanged. Null only while a replay is still being written. */
   replay: unknown;
   error: string | null;
@@ -43,6 +47,7 @@ export interface Prepared {
   canonicalDiff: string;
   files: DiffFile[];
   ranges: Map<string, FunctionRange[]>;
+  coverage: DiffCoverage;
 }
 
 export const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -60,6 +65,7 @@ export function prepareDiff(diff: string, opts: { base?: string; head?: string; 
     canonicalDiff: r.canonicalDiff,
     files: r.files,
     ranges: r.functionRanges,
+    coverage: truncateDiff(r.files, r.functionRanges),
   };
 }
 
@@ -137,8 +143,9 @@ export function idFor(key: string): string {
   }
 }
 
-export function cacheKey(diffHash: string, model: string): string {
-  return sha256(`${diffHash}:${SCHEMA_VERSION}:${model}`);
+/** `extra` carries anything else that changes the answer, such as a recording hash. */
+export function cacheKey(diffHash: string, model: string, extra = ''): string {
+  return sha256(`${diffHash}:${SCHEMA_VERSION}:${PROMPT_VERSION}:${model}:${extra}`);
 }
 
 export function listReplays(): Array<{ id: string; title: string; label: string; status: Status; created_at: string }> {
@@ -176,6 +183,7 @@ function newDoc(p: Prepared, id: string, key: string, model: string): StoredRepl
   const now = new Date().toISOString();
   return {
     schema_version: SCHEMA_VERSION,
+    prompt_version: PROMPT_VERSION,
     id,
     key,
     status: 'pending',
@@ -186,6 +194,7 @@ function newDoc(p: Prepared, id: string, key: string, model: string): StoredRepl
     context: p.context,
     facts: p.facts,
     diff: p.canonicalDiff,
+    prompt_coverage: { omitted: p.coverage.omitted, summarised: p.coverage.summarised },
     replay: null,
     error: null,
   };

@@ -112,8 +112,8 @@ describe('facts', () => {
   it('truncates with manifests and tests first and marks the cut', () => {
     const r = extractFacts({ diff: patch });
     const out = truncateDiff(r.files, r.functionRanges, 1500);
-    expect(out.indexOf('package.json')).toBeLessThan(out.indexOf('test/loginLimiter.test.js'));
-    expect(out).toContain('[rundown: diff truncated');
+    expect(out.text.indexOf('package.json')).toBeLessThan(out.text.indexOf('test/loginLimiter.test.js'));
+    expect(out.text).toContain('[rundown: diff truncated');
   });
 });
 

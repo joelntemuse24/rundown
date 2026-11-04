@@ -1,5 +1,5 @@
 import type { DiffFile } from './diff.js';
-import { isTestFile, LOCKFILES, type Facts, type FunctionRange } from './facts.js';
+import { isTestFile, LOCKFILES, sha256, type Facts, type FunctionRange } from './facts.js';
 import type { ChatMessage } from './model.js';
 import { hasChain } from './schema.js';
 
@@ -41,6 +41,9 @@ logic.step_id is the id of a sequence step. failure_mode only when the diff show
 tests: one entry per file in test_files, or [] if there are none. Say plainly what each does not cover.
 open_questions: 0 to 3, each about something the diff does not answer, with evidence in a file from the diff.`;
 
+/** The slice of the prompt that shapes an answer. Its hash is part of the cache key. */
+export const PROMPT_VERSION = sha256(SYSTEM_PROMPT + SCHEMA_TEXT).slice(0, 8);
+
 export const DIFF_BUDGET = 80_000;
 const MANIFEST = /(^|\/)(package\.json|requirements\.txt|pyproject\.toml|go\.mod|Cargo\.toml|Gemfile)$/;
 
@@ -72,8 +75,16 @@ function summariseLargeNewFile(f: DiffFile, ranges: FunctionRange[]): string {
   ].join('\n');
 }
 
+export interface DiffCoverage {
+  text: string;
+  /** Files left out entirely because the budget was spent. */
+  omitted: string[];
+  /** Large new files the model saw only as signatures plus their first and last 40 lines. */
+  summarised: string[];
+}
+
 /** Manifests and tests whole first, then source files, then lockfiles; cut is marked. */
-export function truncateDiff(files: DiffFile[], ranges: Map<string, FunctionRange[]>, budget = DIFF_BUDGET): string {
+export function truncateDiff(files: DiffFile[], ranges: Map<string, FunctionRange[]>, budget = DIFF_BUDGET): DiffCoverage {
   const rank = (f: DiffFile) => {
     const base = f.path.split('/').pop()!;
     if (LOCKFILES.has(base)) return 3;
@@ -84,19 +95,22 @@ export function truncateDiff(files: DiffFile[], ranges: Map<string, FunctionRang
   const ordered = files.map((f, i) => ({ f, i })).sort((a, b) => rank(a.f) - rank(b.f) || a.i - b.i).map((x) => x.f);
   const parts: string[] = [];
   const omitted: string[] = [];
+  const summarised: string[] = [];
   let used = 0;
   for (const f of ordered) {
     const lineCount = f.hunks.reduce((n, h) => n + h.lines.length, 0);
-    const text = f.status === 'added' && lineCount > 400 ? summariseLargeNewFile(f, ranges.get(f.path) ?? []) : renderFile(f);
+    const big = f.status === 'added' && lineCount > 400;
+    const text = big ? summariseLargeNewFile(f, ranges.get(f.path) ?? []) : renderFile(f);
     if (used + text.length + 1 > budget) {
       omitted.push(f.path);
       continue;
     }
+    if (big) summarised.push(f.path);
     parts.push(text);
     used += text.length + 1;
   }
   if (omitted.length) parts.push(`[rundown: diff truncated at ${budget} characters; omitted files: ${omitted.join(', ')}]`);
-  return parts.join('\n');
+  return { text: parts.join('\n'), omitted, summarised };
 }
 
 export interface PromptContext {
@@ -121,7 +135,7 @@ export function buildMessages(facts: Facts, files: DiffFile[], ranges: Map<strin
   const sections = ['full', SCHEMA_TEXT, limitsFor(facts), 'Facts:\n' + JSON.stringify(facts, null, 2)];
   if (ctx.title || ctx.body) sections.push(`PR title: ${ctx.title ?? ''}\nPR body:\n${ctx.body?.trim() || '(empty)'}`);
   if (ctx.commits?.length) sections.push('Commit subjects:\n' + ctx.commits.join('\n'));
-  sections.push('Unified diff:\n' + truncateDiff(files, ranges));
+  sections.push('Unified diff:\n' + truncateDiff(files, ranges).text);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: sections.join('\n\n') },

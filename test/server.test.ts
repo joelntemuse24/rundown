@@ -138,4 +138,42 @@ describe.skipIf(!hasViewer)('server', () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error).toMatch(/pull request URL/);
   });
+
+  it('stores the prompt version and what the model did not see', async () => {
+    const doc: any = await (await fetch(`${base}/r/${id}.json`)).json();
+    const { PROMPT_VERSION } = await import('../src/prompt.js');
+    expect(doc.prompt_version).toBe(PROMPT_VERSION);
+    expect(doc.prompt_coverage).toEqual({ omitted: [], summarised: [] });
+  });
+
+  it('records an over-budget file as omitted, and keeps the rest of the diff', async () => {
+    const filler = Array.from({ length: 1600 }, (_, i) => `+export const value${i} = ${i};`);
+    const big = [
+      'diff --git a/src/a-big.js b/src/a-big.js',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/src/a-big.js',
+      `@@ -0,0 +1,${filler.length} @@`,
+      ...filler,
+      'diff --git a/package.json b/package.json',
+      '--- a/package.json',
+      '+++ b/package.json',
+      '@@ -8,6 +8,7 @@',
+      '   },',
+      '   "dependencies": {',
+      '     "express": "^4.19.2",',
+      '+    "express-rate-limit": "^7.4.0",',
+      '     "ioredis": "^5.4.1"',
+      '   },',
+      '   "devDependencies": {',
+      '',
+    ].join('\n');
+    const json: any = await (await post('/generate', { diff: big, wait: true })).json();
+    expect(json.id).not.toBe(id);
+    const doc: any = await (await fetch(`${base}/r/${json.id}.json`)).json();
+    // The large new file is either summarised or dropped; either way the reader is told, and package.json survives.
+    const told = [...doc.prompt_coverage.omitted, ...doc.prompt_coverage.summarised];
+    expect(told).toContain('src/a-big.js');
+    expect(doc.prompt_coverage.omitted).not.toContain('package.json');
+  });
 });
