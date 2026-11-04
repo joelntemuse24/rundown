@@ -9,5 +9,7 @@
   "base": "b980c95d4755697ee376f5e19b95c328e173e304",
   "head": "60bc59ddac34d8c0773cf38a04c98c7cf82e357d",
   "merged_at": "2026-10-27T13:20:10Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
   "url": "https://github.com/tokio-rs/tokio/pull/8728"
 }

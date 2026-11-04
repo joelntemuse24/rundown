@@ -11,5 +11,7 @@
   "base": "7bc45877a86192af77645e156eb3744f95b47dae",
   "head": "92bab7d1142db0c807060577233568e5f7734c9b",
   "merged_at": "2025-06-05T14:55:33Z",
+  "license": "Apache-2.0",
+  "license_file": "LICENSE",
   "url": "https://github.com/psf/requests/pull/6963"
 }

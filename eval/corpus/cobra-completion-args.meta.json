@@ -11,5 +11,7 @@
   "base": "61968e893eee2f27696c2fbc8e34fa5c4afaf7c4",
   "head": "a36b43475f0a868310fdce4ead976a0cfb8173ea",
   "merged_at": "2026-04-24T20:41:58Z",
+  "license": "Apache-2.0",
+  "license_file": "LICENSE.txt",
   "url": "https://github.com/spf13/cobra/pull/2356"
 }

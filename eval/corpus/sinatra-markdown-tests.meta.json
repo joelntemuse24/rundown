@@ -9,5 +9,7 @@
   "base": "0c88089be7668326ec5ed52671732f8565a16353",
   "head": "fff72e8311aaaae5787ba827059483101c7f4e98",
   "merged_at": "2026-07-20T09:59:21Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
   "url": "https://github.com/sinatra/sinatra/pull/2182"
 }

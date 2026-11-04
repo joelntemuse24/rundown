@@ -11,5 +11,7 @@
   "base": "697666724ad6f9a992fc61f3b36d94de483602de",
   "head": "d9a50d799e03b6b6605206e7426ef33c6867a8ad",
   "merged_at": "2026-10-23T15:54:36Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
   "url": "https://github.com/preactjs/preact/pull/5321"
 }

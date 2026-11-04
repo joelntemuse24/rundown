@@ -9,5 +9,7 @@
   "base": "7cc9c2f33cff3f027d42509489bae9942f833dae",
   "head": "ced122bcbf1f9b2e4f701085bb195cfbebbd0deb",
   "merged_at": "2026-10-23T14:16:28Z",
+  "license": "MIT OR Unlicense",
+  "license_file": "COPYING, LICENSE-MIT, UNLICENSE",
   "url": "https://github.com/BurntSushi/ripgrep/pull/3573"
 }

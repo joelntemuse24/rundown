@@ -9,5 +9,7 @@
   "base": "3b08cd7235bd5ad2f055aa9e38135f111f6c5926",
   "head": "18ac953cb3a9ac9a790509c97a44abdaa998d823",
   "merged_at": "2026-09-25T06:01:38Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
   "url": "https://github.com/gin-gonic/gin/pull/4854"
 }

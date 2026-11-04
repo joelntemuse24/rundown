@@ -9,5 +9,7 @@
   "base": "1c6f1b0fe4000977b9a7b4f34097e4d527dd9824",
   "head": "b403cf7a9fda8e4cdf563448f4c4f4469bcaae22",
   "merged_at": "2026-11-02T20:15:26Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
   "url": "https://github.com/expressjs/express/pull/7563"
 }
