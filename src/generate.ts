@@ -207,7 +207,7 @@ export function parseModelJson(content: string): unknown {
 }
 
 async function runModel(p: Prepared, doc: StoredReplay, cfg: Pick<Config, 'baseURL' | 'apiKey' | 'model'>, quiet = false): Promise<StoredReplay> {
-  const messages = buildMessages(p.facts, p.files, p.ranges, p.context);
+  const messages = buildMessages(p.facts, p.coverage.text, p.context);
   const attempt = async (msgs: ChatMessage[], label: string) => {
     const c = await complete(cfg, msgs);
     try {

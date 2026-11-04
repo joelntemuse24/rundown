@@ -59,7 +59,7 @@ function scoreSaved(name: string, diff: string): RunScore {
 
 async function scoreLive(name: string, meta: Meta, diff: string, cfg: ReturnType<typeof loadConfig>): Promise<RunScore> {
   const { p, c } = prepared(name, diff);
-  const messages = buildMessages(p.facts, p.files, p.functionRanges, { title: meta.title, body: meta.body, commits: meta.commits });
+  const messages = buildMessages(p.facts, p.coverage.text, { title: meta.title, body: meta.body, commits: meta.commits });
   const first = await complete(cfg, messages);
   let tokens = { prompt: first.promptTokens, completion: first.completionTokens };
   const parsed = parseFirstReply(first.content);

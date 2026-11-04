@@ -131,11 +131,15 @@ export function limitsFor(facts: Facts): string {
   ].join('\n');
 }
 
-export function buildMessages(facts: Facts, files: DiffFile[], ranges: Map<string, FunctionRange[]>, ctx: PromptContext): ChatMessage[] {
+/**
+ * The messages for one run. `diffText` is the already-truncated diff, so the text the model reads
+ * is the same text `prepareDiff` recorded in `prompt_coverage`; truncation happens once.
+ */
+export function buildMessages(facts: Facts, diffText: string, ctx: PromptContext): ChatMessage[] {
   const sections = ['full', SCHEMA_TEXT, limitsFor(facts), 'Facts:\n' + JSON.stringify(facts, null, 2)];
   if (ctx.title || ctx.body) sections.push(`PR title: ${ctx.title ?? ''}\nPR body:\n${ctx.body?.trim() || '(empty)'}`);
   if (ctx.commits?.length) sections.push('Commit subjects:\n' + ctx.commits.join('\n'));
-  sections.push('Unified diff:\n' + truncateDiff(files, ranges).text);
+  sections.push('Unified diff:\n' + diffText);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: sections.join('\n\n') },

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractFacts } from '../src/facts.js';
+import { prepareDiff } from '../src/generate.js';
 import { buildMessages, DIFF_BUDGET, truncateDiff } from '../src/prompt.js';
 
 const patch = readFileSync(new URL('../fixtures/sample.patch', import.meta.url), 'utf8');
@@ -45,8 +46,15 @@ describe('truncateDiff reports what the model did not see', () => {
   });
 
   it('puts the same accounting into the messages the model sees', () => {
-    const msgs = buildMessages(r.facts, r.files, r.functionRanges, { title: 'T', body: 'B', commits: ['c'] });
+    const msgs = buildMessages(r.facts, truncateDiff(r.files, r.functionRanges).text, { title: 'T', body: 'B', commits: ['c'] });
     expect(msgs).toHaveLength(2);
     expect(msgs[1].content).toContain('Unified diff:\ndiff --git a/package.json b/package.json');
+  });
+
+  it('hands the model exactly the diff prepareDiff recorded as coverage', () => {
+    const prepared = prepareDiff(patch);
+    const user = buildMessages(prepared.facts, prepared.coverage.text, {}).find((m) => m.role === 'user')!;
+    const marker = 'Unified diff:\n';
+    expect(user.content.slice(user.content.indexOf(marker) + marker.length)).toBe(prepared.coverage.text);
   });
 });
