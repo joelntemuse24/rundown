@@ -184,9 +184,11 @@ export function promptFingerprint(parts: string[]): string {
 /**
  * The whole prompt that shapes an answer, rendered, so a change anywhere in it is a cache miss:
  * both text blocks, every branch of limitsFor, the section layout, the repair text, and the
- * truncation thresholds. Two synthetic fact sets cover both diagram branches.
+ * truncation thresholds, and the text truncateDiff writes around a diff. Two synthetic fact sets
+ * cover both diagram branches; one synthetic diff, rendered within and over budget, covers the file
+ * headers, the large-file summary, and the truncation marker.
  */
-function promptParts(): string[] {
+export function promptParts(): string[] {
   const render = (facts: Facts) => buildMessages(facts, `[the diff, truncated to ${DIFF_BUDGET} characters]`, { title: 'Title', body: 'Body', commits: ['Commit subject'] });
   const empty: Facts = {
     diff_hash: '',
@@ -215,7 +217,27 @@ function promptParts(): string[] {
     ],
   };
   const t = truncationParts();
+  const add = (n: number) => Array.from({ length: n }, (_, i) => ({ type: 'add' as const, text: `line ${i + 1}`, oldNo: null, newNo: i + 1 }));
+  const files: DiffFile[] = [
+    {
+      path: 'src/a.ts',
+      oldPath: 'src/a.ts',
+      status: 'modified',
+      binary: false,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, section: 'function run()', lines: [{ type: 'ctx', text: 'run();', oldNo: 1, newNo: 1 }, ...add(1)] }],
+    },
+    { path: 'src/new.ts', oldPath: 'src/new.ts', status: 'added', binary: false, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, section: '', lines: add(1) }] },
+    { path: 'src/big.ts', oldPath: 'src/big.ts', status: 'added', binary: false, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: LARGE_FILE_LINES + 1, section: '', lines: add(LARGE_FILE_LINES + 1) }] },
+    { path: 'src/old.ts', oldPath: 'src/old.ts', status: 'deleted', binary: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, section: '', lines: [{ type: 'del', text: 'gone();', oldNo: 1, newNo: null }] }] },
+    // Listed last so the rank order (manifests, tests, source, lockfiles) has to move them.
+    { path: 'pnpm-lock.yaml', oldPath: 'pnpm-lock.yaml', status: 'modified', binary: false, hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, section: '', lines: add(1) }] },
+    { path: 'test/a.test.ts', oldPath: 'test/a.test.ts', status: 'modified', binary: false, hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, section: '', lines: add(1) }] },
+    { path: 'package.json', oldPath: 'package.json', status: 'modified', binary: false, hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, section: '', lines: add(1) }] },
+  ];
+  const ranges = new Map<string, FunctionRange[]>([['src/big.ts', [{ name: 'big', start: 1, end: LARGE_FILE_LINES + 1, status: 'added' }]]]);
   return [
+    truncateDiff(files, ranges).text,
+    truncateDiff(files, ranges, 1).text,
     ...render(empty).map((m) => `${m.role}:${m.content}`),
     ...render(full).map((m) => `${m.role}:${m.content}`),
     ...repairMessages(render(empty), 'not json', ['response is not JSON']).map((m) => `${m.role}:${m.content}`),

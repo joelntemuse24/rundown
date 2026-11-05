@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractFacts, type Facts } from '../src/facts.js';
-import { buildMessages, promptFingerprint, repairMessages, truncateDiff, truncationParts } from '../src/prompt.js';
+import { buildMessages, PROMPT_VERSION, promptFingerprint, promptParts, repairMessages, truncateDiff, truncationParts } from '../src/prompt.js';
 
 const patch = readFileSync(new URL('../fixtures/sample.patch', import.meta.url), 'utf8');
 const r = extractFacts({ diff: patch });
@@ -56,6 +56,17 @@ describe('PROMPT_VERSION covers the whole rendered prompt', () => {
       const edited = partsFor().map((p, j) => (i === j ? p + ' edited' : p));
       expect(promptFingerprint(edited)).not.toBe(base);
     }
+  });
+
+  it('includes the text the diff renderer writes, which only a real truncateDiff run produces', () => {
+    const all = promptParts().join('\n');
+    expect(all).toContain('[rundown: diff truncated at');
+    expect(all).toContain('shown as signatures plus first and last');
+    expect(all).toContain('[rundown: lines ');
+    expect(all).toContain('\nnew file\n');
+    expect(all).toContain('\ndeleted file\n');
+    expect(all).toMatch(/^@@ -\d+,\d+ \+\d+,\d+ @@/m);
+    expect(PROMPT_VERSION).toBe(promptFingerprint(promptParts()));
   });
 
   it('changes with each truncation constant', () => {
