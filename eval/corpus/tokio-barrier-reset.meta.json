@@ -1,0 +1,16 @@
+{
+  "title": "sync: reset `Barrier` state before waking the other tasks",
+  "body": "The leader path of `Barrier::wait` publishes the new generation through `state.waker.send(..)` before resetting `arrived` and incrementing the generation. The watch channel wakes the parked waiters synchronously inside `send`, so a waker that panics when woken (the trigger from #8560) unwinds out of `wait` with `arrived` still equal to `n` and a stale generation, and the lock is not poisoned. Since the generation value was already published, every later `wait` returns immediately as a non-leader: the barrier silently turns into a pass-through and never elects a leader again.\n\nReset the state before calling `send`, the same reordering #8560 applied to `mpsc::Permit::send`. The new test parks a waiter whose waker panics, trips the leader path, and checks that the next cohort still blocks and elects exactly one leader; it fails without the fix.\n",
+  "commits": [
+    "sync: reset `Barrier` state before waking the other tasks",
+    "sync: drop redundant generation binding in Barrier leader path"
+  ],
+  "repo": "tokio-rs/tokio",
+  "number": 8645,
+  "base": "4890d027f8a566ccf081e7f019ed766f780df1af",
+  "head": "e8fd5eb7bbd5358e9db8f8d42b7cdd8c6cec970b",
+  "merged_at": "2026-10-29T15:55:52Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "url": "https://github.com/tokio-rs/tokio/pull/8645"
+}

@@ -1,0 +1,577 @@
+diff --git a/compat/src/suspense.js b/compat/src/suspense.js
+index 186e90dd0d..c1be07e652 100644
+--- a/compat/src/suspense.js
++++ b/compat/src/suspense.js
+@@ -4,7 +4,8 @@ import {
+ 	FORCE_PROPS_REVALIDATE,
+ 	MODE_HYDRATE,
+ 	REF_DETACHED,
+-	UNDEFINED
++	UNDEFINED,
++	VNODE_MARKER
+ } from '../../src/constants';
+ import { assign } from './util';
+ 
+@@ -64,7 +65,7 @@ function detachedClone(vnode, detachedParent, parentDom) {
+ 		// reveal attaches them again.
+ 		if (typeof vnode.type == 'string') vnode._flags |= REF_DETACHED;
+ 
+-		vnode = assign({ constructor: UNDEFINED }, vnode);
++		vnode = assign({ constructor: VNODE_MARKER }, vnode);
+ 		if (vnode._component != null) {
+ 			if (vnode._component._parentDom == parentDom) {
+ 				vnode._component._parentDom = detachedParent;
+diff --git a/demo/package.json b/demo/package.json
+index 6663db33f3..ba7e3008cb 100644
+--- a/demo/package.json
++++ b/demo/package.json
+@@ -22,7 +22,7 @@
+     "mobx": "^5.15.4",
+     "mobx-react": "^6.2.2",
+     "mobx-state-tree": "^3.16.0",
+-    "preact-render-to-string": "^5.0.2",
++    "preact-render-to-string": "^6.8.2",
+     "preact-router": "^3.0.0",
+     "react-redux": "^7.1.0",
+     "react-router": "^5.0.1",
+diff --git a/jsconfig-lint.json b/jsconfig-lint.json
+index 624fa9a93f..db3aebb9eb 100644
+--- a/jsconfig-lint.json
++++ b/jsconfig-lint.json
+@@ -6,6 +6,7 @@
+     "moduleResolution": "Node16",
+     "target": "ES2015",
+     "module": "Node16",
++    "types": ["vitest/globals", "node"],
+     "lib": ["dom", "es2015"],
+     "checkJs": false
+   },
+diff --git a/jsx-runtime/src/index.js b/jsx-runtime/src/index.js
+index c4025321d9..c35eec3172 100644
+--- a/jsx-runtime/src/index.js
++++ b/jsx-runtime/src/index.js
+@@ -1,5 +1,6 @@
+ import { options, Fragment } from 'preact';
+ import { encodeEntities } from './utils';
++import { VNODE_MARKER } from '../../src/constants';
+ 
+ let vnodeId = 0;
+ 
+@@ -56,7 +57,7 @@ function createVNode(type, props, key, isStaticChildren, __source, __self) {
+ 		_depth: 0,
+ 		_dom: null,
+ 		_component: null,
+-		constructor: undefined,
++		constructor: VNODE_MARKER,
+ 		_original: --vnodeId,
+ 		_index: -1,
+ 		_flags: 0
+@@ -166,7 +167,7 @@ function jsxEscape(value) {
+ 
+ 	if (typeof value == 'object') {
+ 		// Check for VNode
+-		if (value.constructor === undefined) return value;
++		if (value.constructor === VNODE_MARKER) return value;
+ 
+ 		if (isArray(value)) {
+ 			for (let i = 0; i < value.length; i++) {
+diff --git a/package.json b/package.json
+index 03a8d11311..b779ccb245 100644
+--- a/package.json
++++ b/package.json
+@@ -189,6 +189,7 @@
+   "devDependencies": {
+     "@babel/core": "^7.28.0",
+     "@babel/preset-env": "^7.29.7",
++    "@preact/signals": "^2.11.4",
+     "@rollup/plugin-babel": "^6.1.0",
+     "@types/chai": "^5.2.2",
+     "@types/node": "^22.20.1",
+@@ -205,7 +206,7 @@
+     "oxfmt": "^0.32.0",
+     "oxlint": "^1.8.0",
+     "playwright": "^1.54.1",
+-    "preact-render-to-string": "^6.5.0",
++    "preact-render-to-string": "^6.8.2",
+     "prop-types": "^15.8.1",
+     "rollup": "^4.62.2",
+     "terser": "5.16.0",
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index ea00d5fcca..518e38d9d2 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -14,6 +14,9 @@ importers:
+       '@babel/preset-env':
+         specifier: ^7.29.7
+         version: 7.29.7(@babel/core@7.29.7)
++      '@preact/signals':
++        specifier: ^2.11.4
++        version: 2.11.4(preact@10.29.8)
+       '@rollup/plugin-babel':
+         specifier: ^6.1.0
+         version: 6.1.0(@babel/core@7.29.7)(rollup@4.63.1)
+@@ -63,8 +66,8 @@ importers:
+         specifier: ^1.54.1
+         version: 1.63.0
+       preact-render-to-string:
+-        specifier: ^6.5.0
+-        version: 6.5.0(preact@10.29.8)
++        specifier: ^6.8.2
++        version: 6.8.2(preact@10.29.8)
+       prop-types:
+         specifier: ^15.8.1
+         version: 15.8.1
+@@ -108,8 +111,8 @@ importers:
+         specifier: ^3.16.0
+         version: 3.17.3(mobx@5.15.7)
+       preact-render-to-string:
+-        specifier: ^5.0.2
+-        version: 5.2.6(preact@10.29.8)
++        specifier: ^6.8.2
++        version: 6.8.2(preact@10.29.8)
+       preact-router:
+         specifier: ^3.0.0
+         version: 3.2.1(preact@10.29.8)
+@@ -1022,6 +1025,14 @@ packages:
+   '@polka/url@1.0.0-next.29':
+     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+ 
++  '@preact/signals-core@1.14.5':
++    resolution: {integrity: sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg==}
++
++  '@preact/signals@2.11.4':
++    resolution: {integrity: sha512-Rb+5RPo9gWSaHtzJeauhHxiC8KP/IF2DEPkHPEOGOnuy2wnJzRqyeLRankUCYd6ADqtxS6GnWGv6Ie343d8aYw==}
++    peerDependencies:
++      preact: '>= 10.25.0 || >=11.0.0-0'
++
+   '@reduxjs/toolkit@2.12.0':
+     resolution: {integrity: sha512-KiT+RzZbp6mQET+Mg+h2c97+9j1sNflUxQkIHI7Yuzf6Peu+OYpmkn6nbHWmLLWj+1ZODUJFwGZ7gx3L9R9EOw==}
+     peerDependencies:
+@@ -1931,15 +1942,10 @@ packages:
+     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
+     engines: {node: ^10 || ^12 || >=14}
+ 
+-  preact-render-to-string@5.2.6:
+-    resolution: {integrity: sha512-JyhErpYOvBV1hEPwIxc/fHWXPfnEGdRKxc8gFdAZ7XV4tlzyzG847XAyEZqoDnynP88akM4eaHcSOzNcLWFguw==}
+-    peerDependencies:
+-      preact: '>=10'
+-
+-  preact-render-to-string@6.5.0:
+-    resolution: {integrity: sha512-4vTsKlL51D6zAJObcyjDEnFCY5OBH/oaW+97X8z4IM6DK/BYD6exzaRZblTZhCeqzdBpQejPsfoS20xFc05SPA==}
++  preact-render-to-string@6.8.2:
++    resolution: {integrity: sha512-Hdx7cKD3AMYgt795TdddBpUbuGEFoL/VeA6s7VrBt9Gjt0r6rCy5wMp5xkDjQ9cbKj62frHsEx1x8yV6EjoOpg==}
+     peerDependencies:
+-      preact: '>=10'
++      preact: '>=10 || >= 11.0.0-0'
+ 
+   preact-router@3.2.1:
+     resolution: {integrity: sha512-KEN2VN1DxUlTwzW5IFkF13YIA2OdQ2OvgJTkQREF+AA2NrHRLaGbB68EjS4IeZOa1shvQ1FvEm3bSLta4sXBhg==}
+@@ -1954,9 +1960,6 @@ packages:
+       preact-render-to-string:
+         optional: true
+ 
+-  pretty-format@3.8.0:
+-    resolution: {integrity: sha512-WuxUnVtlWL1OfZFQFuqvnvs6MiAGk9UNsBostyBOB0Is9wb5uRESevA6rnl/rkksXaGX3GzZhPup5d6Vp1nFew==}
+-
+   prop-types@15.8.1:
+     resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
+ 
+@@ -3273,6 +3276,13 @@ snapshots:
+ 
+   '@polka/url@1.0.0-next.29': {}
+ 
++  '@preact/signals-core@1.14.5': {}
++
++  '@preact/signals@2.11.4(preact@10.29.8)':
++    dependencies:
++      '@preact/signals-core': 1.14.5
++      preact: 10.29.8(preact-render-to-string@6.8.2)
++
+   '@reduxjs/toolkit@2.12.0(react-redux@7.2.9(react-dom@16.14.0(react@16.14.0))(react@16.14.0))(react@16.14.0)':
+     dependencies:
+       '@standard-schema/spec': 1.1.0
+@@ -3757,7 +3767,7 @@ snapshots:
+ 
+   htm@2.1.1(preact@10.29.8):
+     dependencies:
+-      preact: 10.29.8(preact-render-to-string@5.2.6)
++      preact: 10.29.8(preact-render-to-string@6.8.2)
+ 
+   husky@9.1.7: {}
+ 
+@@ -4049,29 +4059,17 @@ snapshots:
+       picocolors: 1.1.1
+       source-map-js: 1.2.1
+ 
+-  preact-render-to-string@5.2.6(preact@10.29.8):
+-    dependencies:
+-      preact: 10.29.8(preact-render-to-string@5.2.6)
+-      pretty-format: 3.8.0
+-
+-  preact-render-to-string@6.5.0(preact@10.29.8):
++  preact-render-to-string@6.8.2(preact@10.29.8):
+     dependencies:
+-      preact: 10.29.8(preact-render-to-string@6.5.0)
+-      pretty-format: 3.8.0
++      preact: 10.29.8(preact-render-to-string@6.8.2)
+ 
+   preact-router@3.2.1(preact@10.29.8):
+     dependencies:
+-      preact: 10.29.8(preact-render-to-string@5.2.6)
+-
+-  preact@10.29.8(preact-render-to-string@5.2.6):
+-    optionalDependencies:
+-      preact-render-to-string: 5.2.6(preact@10.29.8)
++      preact: 10.29.8(preact-render-to-string@6.8.2)
+ 
+-  preact@10.29.8(preact-render-to-string@6.5.0):
++  preact@10.29.8(preact-render-to-string@6.8.2):
+     optionalDependencies:
+-      preact-render-to-string: 6.5.0(preact@10.29.8)
+-
+-  pretty-format@3.8.0: {}
++      preact-render-to-string: 6.8.2(preact@10.29.8)
+ 
+   prop-types@15.8.1:
+     dependencies:
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index 073cab6b6b..d60e8f6285 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -6,12 +6,14 @@ packages:
+ minimumReleaseAge: 1440
+ minimumReleaseAgeStrict: true
+ minimumReleaseAgeIgnoreMissingTime: false
++# These releases add support for symbol-marked VNodes used by Preact 11.
++minimumReleaseAgeExclude:
++  - '@preact/signals@2.11.4'
++  - '@preact/signals-core@1.14.5'
++  - preact-render-to-string@6.8.2
+ blockExoticSubdeps: true
+ trustPolicy: no-downgrade
+ trustPolicyExclude:
+-  # Preserve main's SSR test artifact (verified identical SHA-512). Version
+-  # 6.7.0 currently has invalid stream-node declarations under our TS checks.
+-  - preact-render-to-string@6.5.0
+   # Babel requires semver 6. This exact artifact (including SHA-512 integrity)
+   # already exists in main's npm lockfile; 6.3.1 lacks earlier releases' provenance.
+   - semver@6.3.1
+diff --git a/src/component.js b/src/component.js
+index 8f1a19ff23..fd5e0c783c 100644
+--- a/src/component.js
++++ b/src/component.js
+@@ -3,7 +3,7 @@ import {
+ 	COMPONENT_FORCE,
+ 	MODE_HYDRATE,
+ 	NULL,
+-	UNDEFINED
++	VNODE_MARKER
+ } from './constants';
+ import { Fragment } from './create-element';
+ import { commitRoot, diff } from './diff/index';
+@@ -132,7 +132,7 @@ function renderComponent(component) {
+ 
+ 	const parentDom = component._parentDom;
+ 	if (parentDom) {
+-		const newVNode = assign({ constructor: UNDEFINED }, oldVNode);
++		const newVNode = assign({ constructor: VNODE_MARKER }, oldVNode);
+ 		newVNode._original = oldVNode._original + 1;
+ 		if (options.vnode) options.vnode(newVNode);
+ 
+diff --git a/src/constants.js b/src/constants.js
+index 8bdebb4ac1..b702e7f90b 100644
+--- a/src/constants.js
++++ b/src/constants.js
+@@ -31,6 +31,7 @@ export const MATH_NAMESPACE = 'http://www.w3.org/1998/Math/MathML';
+ 
+ export const NULL = null;
+ export const UNDEFINED = undefined;
++export const VNODE_MARKER = Symbol.for('pv');
+ export const EMPTY_OBJ = /** @type {any} */ ({});
+ export const EMPTY_ARR = [];
+ 
+diff --git a/src/create-element.js b/src/create-element.js
+index 18f734652b..9cf55a6da3 100644
+--- a/src/create-element.js
++++ b/src/create-element.js
+@@ -1,6 +1,6 @@
+ import { assign, slice } from './util';
+ import options from './options';
+-import { NULL, UNDEFINED } from './constants';
++import { NULL, UNDEFINED, VNODE_MARKER } from './constants';
+ 
+ let vnodeId = 0;
+ 
+@@ -93,7 +93,7 @@ export function createVNode(type, props, key, ref, original) {
+ 		_depth: 0,
+ 		_dom: NULL,
+ 		_component: NULL,
+-		constructor: UNDEFINED,
++		constructor: VNODE_MARKER,
+ 		_original: original || ++vnodeId,
+ 		_index: -1,
+ 		_flags: 0
+@@ -119,4 +119,4 @@ export function Fragment(props) {
+  * @returns {vnode is VNode}
+  */
+ export const isValidElement = vnode =>
+-	vnode != NULL && vnode.constructor === UNDEFINED;
++	vnode != NULL && vnode.constructor === VNODE_MARKER;
+diff --git a/src/diff/children.js b/src/diff/children.js
+index 3a3736da8a..4f1ebd6146 100644
+--- a/src/diff/children.js
++++ b/src/diff/children.js
+@@ -8,6 +8,7 @@ import {
+ 	LIS_CANDIDATE,
+ 	REF_DETACHED,
+ 	UNDEFINED,
++	VNODE_MARKER,
+ 	NULL
+ } from '../constants';
+ import { isArray } from '../util';
+@@ -205,14 +206,14 @@ function constructNewChildrenArray(
+ 		// objects are the lone object type rendered as text.
+ 		else if (
+ 			typeof childVNode != 'object' ||
+-			childVNode.constructor == String
++			childVNode.constructor === String
+ 		) {
+ 			childVNode = newChildren[i] = createVNode(NULL, childVNode);
+ 		} else if (isArray(childVNode)) {
+ 			childVNode = newChildren[i] = createVNode(Fragment, {
+ 				children: childVNode
+ 			});
+-		} else if (childVNode.constructor === UNDEFINED && childVNode._depth) {
++		} else if (childVNode.constructor === VNODE_MARKER && childVNode._depth) {
+ 			// VNode is already in use, clone it. This can happen in the following
+ 			// scenario:
+ 			//   const reuse = <div />
+diff --git a/src/diff/index.js b/src/diff/index.js
+index e6cf187554..52209c657b 100644
+--- a/src/diff/index.js
++++ b/src/diff/index.js
+@@ -15,6 +15,7 @@ import {
+ 	RESET_MODE,
+ 	SVG_NAMESPACE,
+ 	UNDEFINED,
++	VNODE_MARKER,
+ 	XHTML_NAMESPACE
+ } from '../constants';
+ import { Fragment } from '../create-element';
+@@ -71,9 +72,8 @@ export function diff(
+ 		resumed,
+ 		newType = newVNode.type;
+ 
+-	// When passing through createElement it assigns the object
+-	// constructor as undefined. This to prevent JSON-injection.
+-	if (newVNode.constructor !== UNDEFINED) return NULL;
++	// Only diff VNodes created by Preact.
++	if (newVNode.constructor !== VNODE_MARKER) return NULL;
+ 
+ 	// If the previous diff bailed out, resume creating/hydrating into the DOM
+ 	// that was kept while suspended (server-rendered, or already in the
+diff --git a/src/internal.d.ts b/src/internal.d.ts
+index c9b78a169d..fc748de237 100644
+--- a/src/internal.d.ts
++++ b/src/internal.d.ts
+@@ -152,7 +152,7 @@ export interface VNode<P = {}> extends preact.VNode<P> {
+ 	 */
+ 	_dom: PreactElement | null;
+ 	_component: Component | null;
+-	constructor: undefined;
++	constructor: symbol;
+ 	_original: number;
+ 	_index: number;
+ 	_flags: number;
+diff --git a/test/browser/components.test.jsx b/test/browser/components.test.jsx
+index 4d1d44a71d..ffebce249c 100644
+--- a/test/browser/components.test.jsx
++++ b/test/browser/components.test.jsx
+@@ -571,6 +571,24 @@ describe('Components', () => {
+ 		expect(scratch.innerHTML).to.equal('42');
+ 	});
+ 
++	it('should not coerce String when identifying VNode children', () => {
++		const vnode = (
++			<div>
++				<span>child</span>
++			</div>
++		);
++		const toString = vi.spyOn(Function.prototype, 'toString');
++		let calls;
++		try {
++			render(vnode, scratch);
++			calls = toString.mock.calls.length;
++		} finally {
++			toString.mockRestore();
++		}
++		expect(calls).to.equal(0);
++		expect(scratch.innerHTML).to.equal('<div><span>child</span></div>');
++	});
++
+ 	it('should render a new String()', () => {
+ 		class ConstructedStringComponent extends Component {
+ 			render() {
+diff --git a/test/browser/hardened-js.test.jsx b/test/browser/hardened-js.test.jsx
+index f2044d1bb2..9703d61369 100644
+--- a/test/browser/hardened-js.test.jsx
++++ b/test/browser/hardened-js.test.jsx
+@@ -9,7 +9,7 @@ import { expect } from 'vitest';
+ // Hardened JavaScript environments (SES `lockdown()`, `node
+ // --frozen-intrinsics`, LavaMoat) freeze `Object.prototype`, which makes
+ // `Object.prototype.constructor` non-writable. Copying a vnode — which carries
+-// `constructor: undefined` as its JSON-injection guard — onto a bare `{}` then
++// a symbol-valued `constructor` marker — onto a bare `{}` then
+ // hits the "override mistake" and throws. See #5109.
+ //
+ // Making `constructor` non-writable is the narrowest reproduction of that and,
+diff --git a/test/browser/render.test.jsx b/test/browser/render.test.jsx
+index b69c53b595..5d0a1dce8f 100644
+--- a/test/browser/render.test.jsx
++++ b/test/browser/render.test.jsx
+@@ -2108,7 +2108,7 @@ describe('render()', () => {
+ 		};
+ 
+ 		Object.defineProperties(Test.prototype, {
+-			constructor: { configurable: true, value: undefined },
++			constructor: { configurable: true, value: Symbol.for('pv') },
+ 			type: { configurable: true, value: TestValue },
+ 			props: {
+ 				configurable: true,
+diff --git a/test/browser/signals.test.jsx b/test/browser/signals.test.jsx
+new file mode 100644
+index 0000000000..a32b896281
+--- /dev/null
++++ b/test/browser/signals.test.jsx
+@@ -0,0 +1,45 @@
++import { createElement, hydrate, isValidElement, render } from 'preact';
++import { signal } from '@preact/signals';
++import { renderToString } from 'preact-render-to-string';
++import { vi } from 'vitest';
++import { setupScratch, teardown } from '../_util/helpers';
++
++describe('Signals integration', () => {
++	let scratch;
++
++	beforeEach(() => {
++		scratch = setupScratch();
++	});
++
++	afterEach(() => {
++		teardown(scratch);
++	});
++
++	it('should recognize and update signal children', async () => {
++		const text = signal('initial');
++		expect(isValidElement(text)).to.equal(true);
++		render(<p>{text}</p>, scratch);
++		expect(scratch.innerHTML).to.equal('<p>initial</p>');
++
++		text.value = 'updated';
++		await vi.waitFor(() => {
++			expect(scratch.innerHTML).to.equal('<p>updated</p>');
++		});
++	});
++
++	it('should hydrate server-rendered signal children', async () => {
++		const text = signal('server');
++		scratch.innerHTML = renderToString(<p>{text}</p>);
++		expect(scratch.innerHTML).to.equal('<p>server</p>');
++		const node = scratch.firstChild;
++
++		hydrate(<p>{text}</p>, scratch);
++		expect(scratch.firstChild).to.equal(node);
++		expect(scratch.innerHTML).to.equal('<p>server</p>');
++
++		text.value = 'client';
++		await vi.waitFor(() => {
++			expect(scratch.innerHTML).to.equal('<p>client</p>');
++		});
++	});
++});
+diff --git a/test/browser/vnode-recognition.test.jsx b/test/browser/vnode-recognition.test.jsx
+new file mode 100644
+index 0000000000..db10c99973
+--- /dev/null
++++ b/test/browser/vnode-recognition.test.jsx
+@@ -0,0 +1,64 @@
++import { cloneElement, createElement, isValidElement, render } from 'preact';
++import { jsx, jsxs, jsxDEV, jsxEscape, jsxTemplate } from 'preact/jsx-runtime';
++import { setupScratch, teardown } from '../_util/helpers';
++
++describe('VNode recognition', () => {
++	let scratch;
++
++	beforeEach(() => {
++		scratch = setupScratch();
++	});
++
++	afterEach(() => {
++		teardown(scratch);
++	});
++
++	for (const [name, create] of [
++		['createElement', () => createElement('span', null, 'child')],
++		['cloneElement', () => cloneElement(createElement('span', null, 'child'))],
++		['jsx', () => jsx('span', { children: 'child' })],
++		['jsxs', () => jsxs('span', { children: ['child'] })],
++		['jsxDEV', () => jsxDEV('span', { children: 'child' })]
++	]) {
++		it('should recognize ' + name + ' VNodes', () => {
++			const vnode = create();
++			expect(vnode.constructor).to.equal(Symbol.for('pv'));
++			expect(isValidElement(vnode)).to.equal(true);
++			expect(() => structuredClone(vnode)).to.throw();
++			render(vnode, scratch);
++			expect(scratch.innerHTML).to.equal('<span>child</span>');
++		});
++	}
++
++	for (const depth of [0, 1]) {
++		it('should ignore unmarked children at depth ' + depth, () => {
++			const child = structuredClone({
++				constructor: undefined,
++				type: 'span',
++				props: { children: 'ignored' },
++				_depth: depth
++			});
++			expect(isValidElement(child)).to.equal(false);
++			render(createElement('div', null, child, 'child'), scratch);
++			expect(scratch.innerHTML).to.equal('<div>child</div>');
++		});
++	}
++
++	it('should preserve the marker when reusing VNodes', () => {
++		const child = createElement('span', null, 'child');
++		render(createElement('div', null, child, child), scratch);
++		expect(scratch.innerHTML).to.equal(
++			'<div><span>child</span><span>child</span></div>'
++		);
++	});
++
++	it('should recognize precompiled JSX VNodes and expressions', () => {
++		const child = createElement('span', null, 'child');
++		const template = jsxTemplate(['<div>', '</div>'], jsxEscape(child));
++		expect(isValidElement(template)).to.equal(true);
++		expect(jsxEscape(child)).to.equal(child);
++		expect(
++			jsxEscape({ constructor: undefined, type: 'span', props: {} })
++		).to.equal('[object Object]');
++	});
++});
+diff --git a/test/shared/createElement.test.jsx b/test/shared/createElement.test.jsx
+index cf4b0ae2a5..3a785cb4ce 100644
+--- a/test/shared/createElement.test.jsx
++++ b/test/shared/createElement.test.jsx
+@@ -30,9 +30,9 @@ describe('createElement(jsx)', () => {
+ 		expect(<Test />).to.have.property('type', Test);
+ 	});
+ 
+-	it('should set VNode.constructor property to prevent json injection', () => {
++	it('should mark VNodes with a shared symbol', () => {
+ 		const vnode = <span />;
+-		expect(vnode.constructor).to.equal(undefined);
++		expect(vnode.constructor).to.equal(Symbol.for('pv'));
+ 	});
+ 
+ 	it('should set VNode#props property', () => {

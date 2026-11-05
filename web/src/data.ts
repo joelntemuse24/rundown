@@ -7,11 +7,13 @@ export interface Doc {
   id: string;
   status: 'pending' | 'ready' | 'failed';
   model: string;
+  prompt_version?: string;
   created_at: string;
   source: { kind: 'pr' | 'diff' | 'local' | 'fixture'; label: string; pr_url?: string; root?: string };
   context: { title?: string; body?: string; commits?: string[] };
   facts: Facts;
   diff: string;
+  prompt_coverage?: { omitted?: string[]; summarised?: string[] };
   /** Model JSON, stored as returned. Null while generation is still running. */
   replay: unknown;
   error: string | null;

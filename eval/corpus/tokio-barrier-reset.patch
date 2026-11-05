@@ -1,0 +1,80 @@
+diff --git a/tokio/src/sync/barrier.rs b/tokio/src/sync/barrier.rs
+index 00fc212d987..73831016d02 100644
+--- a/tokio/src/sync/barrier.rs
++++ b/tokio/src/sync/barrier.rs
+@@ -168,13 +168,18 @@ impl Barrier {
+                     is_leader = true,
+                 );
+                 // we are the leader for this generation
+-                // wake everyone, increment the generation, and return
++                // increment the generation, wake everyone, and return
++                //
++                // The state is reset before waking: a waker can panic when
++                // woken, and unwinding with `arrived == n` and a stale
++                // generation would let every later `wait` pass the barrier
++                // immediately.
++                state.arrived = 0;
++                state.generation += 1;
+                 state
+                     .waker
+-                    .send(state.generation)
++                    .send(generation)
+                     .expect("there is at least one receiver");
+-                state.arrived = 0;
+-                state.generation += 1;
+                 return BarrierWaitResult(true);
+             }
+ 
+diff --git a/tokio/tests/sync_barrier.rs b/tokio/tests/sync_barrier.rs
+index a8f8e9790bc..2e8f0ebe690 100644
+--- a/tokio/tests/sync_barrier.rs
++++ b/tokio/tests/sync_barrier.rs
+@@ -69,6 +69,48 @@ fn tango() {
+     assert!(!(wr1.is_leader() && wr2.is_leader()));
+ }
+ 
++#[test]
++#[cfg(panic = "unwind")]
++fn panicking_waker_does_not_break_barrier() {
++    use std::future::Future;
++    use std::pin::pin;
++    use std::sync::Arc;
++    use std::task::{Context, Wake, Waker};
++
++    struct PanickingWaker;
++
++    impl Wake for PanickingWaker {
++        fn wake(self: Arc<Self>) {
++            panic!("waker panicked");
++        }
++    }
++
++    let b = Barrier::new(2);
++
++    // A waiter parks with a waker that panics when woken.
++    let waker = Waker::from(Arc::new(PanickingWaker));
++    let mut cx = Context::from_waker(&waker);
++    let mut w1 = pin!(b.wait());
++    assert_pending!(w1.as_mut().poll(&mut cx));
++
++    // The leader hits the waiter's panicking waker while releasing the
++    // barrier.
++    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++        let mut w2 = spawn(b.wait());
++        w2.poll()
++    }))
++    .is_err());
++
++    // The barrier must still hold back the next cohort until it is full.
++    let mut w3 = spawn(b.wait());
++    assert_pending!(w3.poll());
++
++    let mut w4 = spawn(b.wait());
++    let wr4 = assert_ready!(w4.poll());
++    let wr3 = assert_ready!(w3.poll());
++    assert!(wr3.is_leader() != wr4.is_leader());
++}
++
+ #[test]
+ fn lots() {
+     let b = Barrier::new(100);

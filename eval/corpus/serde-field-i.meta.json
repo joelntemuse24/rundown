@@ -1,0 +1,16 @@
+{
+  "title": "serde_derive: reduce llvm-lines in ser.rs, reuse fn field_i",
+  "body": "997 less llvm-lines.\r\nMakes use of `de::field_i`",
+  "commits": [
+    "serde_derive: reduce llvm-lines in ser.rs, reuse fn field_i",
+    "serde_derive: rewrite serialize_struct_visitor"
+  ],
+  "repo": "serde-rs/serde",
+  "number": 3038,
+  "base": "5fd91333c7dc942a2f54539b17982f0c5bbc0790",
+  "head": "ea04847eef1683aea818f2b6382b29b07cc1344b",
+  "merged_at": "2026-02-15T16:21:06Z",
+  "license": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-APACHE, LICENSE-MIT",
+  "url": "https://github.com/serde-rs/serde/pull/3038"
+}

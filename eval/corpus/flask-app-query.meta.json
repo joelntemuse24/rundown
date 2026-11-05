@@ -1,0 +1,15 @@
+{
+  "title": "add `app.query` route decorator",
+  "body": "[RFC 10008](https://datatracker.ietf.org/doc/html/rfc10008) isn't accepted yet, but it's been kicking around for years and looks like it will pass. I'm adding it now so I don't have to watch it anymore.\r\n\r\nAdded `client.query` method in https://github.com/pallets/werkzeug/pull/3219. Adjusted the test here to account for Werkzeug not being released yet.\r\n\r\ncloses #3193 ",
+  "commits": [
+    "add app.query route decorator"
+  ],
+  "repo": "pallets/flask",
+  "number": 6133,
+  "base": "3596b1ab61cea85edb8970e83ff61daa073facf8",
+  "head": "89992954ec71b594b1b911f98977cdc8ad46a057",
+  "merged_at": "2026-08-11T20:19:14Z",
+  "license": "BSD-3-Clause",
+  "license_file": "LICENSE.txt",
+  "url": "https://github.com/pallets/flask/pull/6133"
+}

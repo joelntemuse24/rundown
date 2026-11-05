@@ -1,3 +1,5 @@
+import type { DiffFile } from './diff.js';
+import { lineInHunks, parseEvidence } from './diff.js';
 import type { Facts } from './facts.js';
 
 export const SCHEMA_VERSION = 1;
@@ -147,4 +149,32 @@ export function presentReplay(raw: unknown): PresentedReplay {
     diagramTitle: text(diagram?.title),
     diagramMermaid: text(diagram?.mermaid),
   };
+}
+
+/**
+ * True when a `path:line` citation lands inside a hunk: on the new side, or on the old side
+ * for a deleted file. View only, so a stored replay keeps whatever the model wrote.
+ */
+export function citationInDiff(files: DiffFile[], evidence: string): boolean {
+  const e = parseEvidence(evidence);
+  if (!e) return false;
+  const f = files.find((x) => x.path === e.path);
+  return !!f && lineInHunks(f, e.line);
+}
+
+/**
+ * Every citation the view draws, labelled by the section it sits in, outside the diff.
+ * Counted over the whole replay rather than what a depth shows, so it matches the eval measure.
+ */
+export function outsideCitations(view: PresentedReplay, files: DiffFile[]): Array<{ section: string; evidence: string; label: string }> {
+  const sections: Array<[string, string[]]> = [
+    ['dependencies', view.dependencies.map((x) => x.evidence)],
+    ['logic', view.logic.map((x) => x.evidence)],
+    ['tests', view.tests.map((x) => x.evidence)],
+    ['open questions', view.openQuestions.map((x) => x.evidence)],
+    ['functions', view.functions.map((x) => x.evidence)],
+  ];
+  return sections.flatMap(([section, evidence]) =>
+    evidence.filter((ev) => ev && !citationInDiff(files, ev)).map((ev) => ({ section, evidence: ev, label: `${section}: ${ev}` })),
+  );
 }

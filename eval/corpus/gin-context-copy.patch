@@ -1,0 +1,50 @@
+diff --git a/context.go b/context.go
+index 788b00bba5..a6add8a637 100644
+--- a/context.go
++++ b/context.go
+@@ -132,9 +132,8 @@ func (c *Context) Copy() *Context {
+ 	cp.handlers = nil
+ 	cp.fullPath = c.fullPath
+ 
+-	cKeys := c.Keys
+ 	c.mu.RLock()
+-	cp.Keys = maps.Clone(cKeys)
++	cp.Keys = maps.Clone(c.Keys)
+ 	c.mu.RUnlock()
+ 
+ 	cParams := c.Params
+diff --git a/context_test.go b/context_test.go
+index cef488c987..b82e04d52b 100644
+--- a/context_test.go
++++ b/context_test.go
+@@ -709,6 +709,30 @@ func TestContextGetStringMapStringSlice(t *testing.T) {
+ 	assert.Equal(t, []string{"foo"}, c.GetStringMapStringSlice("map")["foo"])
+ }
+ 
++func TestCopyConcurrentWithSet(t *testing.T) {
++	c := &Context{}
++	var wg sync.WaitGroup
++	wg.Add(2)
++	go func() {
++		defer wg.Done()
++		for i := 0; i < 100; i++ {
++			c.Set(i, i)
++		}
++	}()
++	go func() {
++		defer wg.Done()
++		for i := 0; i < 100; i++ {
++			cp := c.Copy()
++			for k, v := range cp.Keys {
++				if k != v {
++					t.Errorf("copied key %v = %v, want %v", k, v, k)
++				}
++			}
++		}
++	}()
++	wg.Wait()
++}
++
+ func TestContextCopy(t *testing.T) {
+ 	c, _ := CreateTestContext(httptest.NewRecorder())
+ 	c.index = 2

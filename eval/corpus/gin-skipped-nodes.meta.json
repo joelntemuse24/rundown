@@ -1,0 +1,16 @@
+{
+  "title": "fix(tree): grow skippedNodes when pooled capacity is stale",
+  "body": "## Description\n\n`getValue` grows the backtrack stack with `append` instead of a raw reslice to `index+1`. The child descent stays outside the `wildChild` branch. The reset of the stack at entry is unchanged.\n\nFixes #4851\n\n## Motivation / Bug Fixed\n\nThe pooled `skippedNodes` slice keeps the capacity captured when the context pool allocated it. `addRoute` can raise `maxSections` afterwards. The next request that needs one more backtrack frame panics with `runtime error: slice bounds out of range` inside the router, before any handler and before `Recovery`.\n\nConfirmed sequence:\n- Register `GET /a` and serve one request (pooled capacity 1).\n- Register `GET /x/y/z/w`, `/x/y/:id/w`, `/x/:id/z/w` and `/:id/y/z/w`.\n- Serve `POST /x/y/z/w/extra` with `HandleMethodNotAllowed`.\n- Result before fix: `slice bounds out of range [:2] with capacity 1`.\n\n## How Has This Been Tested?\n\nRegression test added in `routes_test.go`:\n- `TestLateRouteRegistrationSkippedNodes`\n\nRan:\n```text\ngo test -race -count=1 -run 'TestLateRouteRegistrationSkippedNodes|TestIssue4818' .\n```\nPASS (1.039s).",
+  "commits": [
+    "fix(tree): grow skippedNodes when pooled capacity is stale",
+    "Merge branch 'master' into fix/tree-grow-skipped-nodes"
+  ],
+  "repo": "gin-gonic/gin",
+  "number": 4852,
+  "base": "1bd0ecf2d3e08da37efa270bb7be20c1eddb0d68",
+  "head": "742c541a91ceb6d177429f24b87bc4d81abb3868",
+  "merged_at": "2026-10-10T04:18:55Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "url": "https://github.com/gin-gonic/gin/pull/4852"
+}

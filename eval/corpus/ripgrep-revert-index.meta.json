@@ -1,0 +1,15 @@
+{
+  "title": "index: revert indexing additions",
+  "body": "I think that this was probably a failed experiment. I suspect that it is\ntoo difficult to retro-fit indexing on top of ripgrep. Among other\nissues, one of the main problems is knowing what to index. Surely most\ncases want to use ripgrep's defaults (i.e., its \"smart\" filtering), but\nsome use cases might want to ignore part or all of ripgrep's filtering.\nReconciling this with ripgrep's existing command line structure in a\nuser friendly way seems fraught.\n\nRef #1497\n",
+  "commits": [
+    "index: revert indexing additions"
+  ],
+  "repo": "BurntSushi/ripgrep",
+  "number": 3573,
+  "base": "7cc9c2f33cff3f027d42509489bae9942f833dae",
+  "head": "ced122bcbf1f9b2e4f701085bb195cfbebbd0deb",
+  "merged_at": "2026-10-23T14:16:28Z",
+  "license": "MIT OR Unlicense",
+  "license_file": "COPYING, LICENSE-MIT, UNLICENSE",
+  "url": "https://github.com/BurntSushi/ripgrep/pull/3573"
+}

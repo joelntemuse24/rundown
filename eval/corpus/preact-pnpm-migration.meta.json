@@ -1,0 +1,19 @@
+{
+  "title": "Migrate dependency management to a root and demo pnpm workspace",
+  "body": "Supersedes #5085 and #5128.\n\nMigrate the root and demo to pnpm with a shared lockfile, frozen CI installs, supply-chain checks, and pnpm packing and staged publishing. Keep entry-point manifests out of the workspace and retain the independent benchmark workspace.\n",
+  "commits": [
+    "Migrate dependency management to a root and demo pnpm workspace",
+    "Remove historical npm fallback from build workflow",
+    "Use pnpm for release packing and staged publishing",
+    "Avoid dependency cache for main builds",
+    "Restore dependency version ranges"
+  ],
+  "repo": "preactjs/preact",
+  "number": 5246,
+  "base": "e3e2658c46e53f2171c670f6e9f6fd7c0005f948",
+  "head": "d56de153f39f5da92570fe8580c5944cb6897f85",
+  "merged_at": "2026-09-08T09:02:11Z",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "url": "https://github.com/preactjs/preact/pull/5246"
+}

@@ -1,0 +1,2394 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a9954a55fa..109e17ffdc 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -181,9 +181,6 @@ jobs:
+         fi
+         set -x
+ 
+-    - name: Run tests with indexing enabled
+-      run: ${{ env.CARGO }} test --verbose --workspace --features unstable-index ${{ env.TARGET_FLAGS }}
+-
+     - name: Run tests with PCRE2 (sans cross)
+       if: matrix.target == ''
+       run: ${{ env.CARGO }} test --verbose --workspace --features pcre2 ${{ env.TARGET_FLAGS }}
+diff --git a/.gitignore b/.gitignore
+index f4e1f6d67d..881633e239 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,6 +20,3 @@ ripgrep*_source.tar.bz2
+ # Cargo timings
+ cargo-timing-*.html
+ cargo-timing.html
+-
+-# ripgrep index
+-.ripgrep
+diff --git a/Cargo.lock b/Cargo.lock
+index 7c44b29246..7448b56555 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -124,12 +124,6 @@ version = "0.1.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+ 
+-[[package]]
+-name = "fst"
+-version = "0.4.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7ab85b9b05e3978cc9a9cf8fea7f01b494e1a09ed3037e16ba39edc7a29eb61a"
+-
+ [[package]]
+ name = "getrandom"
+ version = "0.4.3"
+@@ -188,17 +182,6 @@ dependencies = [
+  "winapi-util",
+ ]
+ 
+-[[package]]
+-name = "grep-index"
+-version = "0.0.1"
+-dependencies = [
+- "anyhow",
+- "bstr",
+- "fst",
+- "redb",
+- "regex-syntax",
+-]
+-
+ [[package]]
+ name = "grep-matcher"
+ version = "0.1.9"
+@@ -373,15 +356,6 @@ version = "6.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+ 
+-[[package]]
+-name = "redb"
+-version = "4.1.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8e925444704b5f17d32bf42f5b6e2df050bceebc3dcd6e71cc73dafe8092e839"
+-dependencies = [
+- "libc",
+-]
+-
+ [[package]]
+ name = "regex"
+ version = "1.13.1"
+@@ -418,7 +392,6 @@ dependencies = [
+  "anyhow",
+  "bstr",
+  "grep",
+- "grep-index",
+  "ignore",
+  "lexopt",
+  "log",
+diff --git a/Cargo.toml b/Cargo.toml
+index 9bf95826e6..1505124407 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -41,7 +41,6 @@ members = [
+   "crates/globset",
+   "crates/grep",
+   "crates/cli",
+-  "crates/index",
+   "crates/matcher",
+   "crates/pcre2",
+   "crates/printer",
+@@ -58,7 +57,6 @@ rust-version = "1.96"
+ anyhow = "1.0.75"
+ bstr = "1.7.0"
+ grep = { version = "0.4.1", path = "crates/grep" }
+-grep-index = { version = "0.0.1", path = "crates/index", optional = true }
+ ignore = { version = "0.4.29", path = "crates/ignore" }
+ lexopt = "0.3.0"
+ log = "0.4.5"
+@@ -76,9 +74,6 @@ walkdir = "2"
+ 
+ [features]
+ pcre2 = ["grep/pcre2"]
+-# This provides opt-in support for indexing. This is currently in active
+-# development and may have very serious bugs. Use at your own risk.
+-unstable-index = ["dep:grep-index"]
+ 
+ [profile.release]
+ debug = 1
+diff --git a/crates/core/flags/defs.rs b/crates/core/flags/defs.rs
+index 671a9290d3..87ac910478 100644
+--- a/crates/core/flags/defs.rs
++++ b/crates/core/flags/defs.rs
+@@ -25,9 +25,9 @@ use crate::flags::{
+     Category, Flag, FlagValue,
+     lowargs::{
+         BinaryMode, BoundaryMode, BufferMode, CaseMode, ColorChoice,
+-        ContextMode, EncodingMode, EngineChoice, GenerateMode, IndexMode,
+-        LoggingMode, LowArgs, MmapMode, Mode, PatternSource, SearchMode,
+-        SortMode, SortModeKind, SpecialMode, TypeChange,
++        ContextMode, EncodingMode, EngineChoice, GenerateMode, LoggingMode,
++        LowArgs, MmapMode, Mode, PatternSource, SearchMode, SortMode,
++        SortModeKind, SpecialMode, TypeChange,
+     },
+ };
+ 
+@@ -84,10 +84,6 @@ pub(super) const FLAGS: &[&dyn Flag] = &[
+     &IgnoreFile,
+     &IgnoreFileCaseInsensitive,
+     &IncludeZero,
+-    &Index,
+-    &IndexCrud,
+-    &IndexForce,
+-    &IndexPath,
+     &InvertMatch,
+     &JSON,
+     &LineBuffered,
+@@ -155,79 +151,6 @@ pub(super) const FLAGS: &[&dyn Flag] = &[
+     &SortFiles,
+ ];
+ 
+-impl LowArgs {
+-    /// Returns a flag that does not support indexing, if it's enabled.
+-    ///
+-    /// If there aren't any flags enabled that don't support indexing, then
+-    /// `None` is returned.
+-    ///
+-    /// The idea of this routine is to start out very paranoid about what is
+-    /// allowed to be used when indexing is enabled. Ideally, most or all of
+-    /// these would eventually become supported.
+-    pub(super) fn indexing_unsupported_flag(
+-        &self,
+-    ) -> Option<&'static dyn Flag> {
+-        if matches!(self.mode, Mode::Search(SearchMode::FilesWithoutMatch)) {
+-            return Some(&FilesWithoutMatch);
+-        }
+-        if matches!(self.binary, BinaryMode::AsText) {
+-            return Some(&Binary);
+-        }
+-        if !matches!(self.encoding, EncodingMode::Auto) {
+-            return Some(&Encoding);
+-        }
+-        if matches!(self.engine, EngineChoice::PCRE2) {
+-            return Some(&Engine);
+-        }
+-        if self.follow {
+-            return Some(&Follow);
+-        }
+-        if !self.globs.is_empty() {
+-            return Some(&Glob);
+-        }
+-        if self.hidden {
+-            return Some(&Hidden);
+-        }
+-        if !self.iglobs.is_empty() {
+-            return Some(&Glob);
+-        }
+-        if !self.ignore_file.is_empty() {
+-            return Some(&IgnoreFile);
+-        }
+-        if self.no_ignore_dot {
+-            return Some(&NoIgnoreDot);
+-        }
+-        if self.no_ignore_exclude {
+-            return Some(&NoIgnoreExclude);
+-        }
+-        if self.no_ignore_files {
+-            return Some(&NoIgnoreFiles);
+-        }
+-        if self.no_ignore_global {
+-            return Some(&NoIgnoreGlobal);
+-        }
+-        if self.no_ignore_parent {
+-            return Some(&NoIgnoreParent);
+-        }
+-        if self.no_ignore_vcs {
+-            return Some(&NoIgnoreVcs);
+-        }
+-        if self.no_require_git {
+-            return Some(&NoRequireGit);
+-        }
+-        if self.one_file_system {
+-            return Some(&OneFileSystem);
+-        }
+-        if self.pre.is_some() {
+-            return Some(&Pre);
+-        }
+-        if self.search_zip {
+-            return Some(&SearchZip);
+-        }
+-        None
+-    }
+-}
+-
+ /// -A/--after-context
+ #[derive(Debug)]
+ struct AfterContext;
+@@ -3450,304 +3373,6 @@ fn test_include_zero() {
+     assert_eq!(false, args.include_zero);
+ }
+ 
+-/// -X/--index
+-#[derive(Debug)]
+-struct Index;
+-
+-impl Flag for Index {
+-    fn is_switch(&self) -> bool {
+-        true
+-    }
+-    fn name_short(&self) -> Option<u8> {
+-        Some(b'X')
+-    }
+-    fn name_long(&self) -> &'static str {
+-        "index"
+-    }
+-    fn doc_category(&self) -> Category {
+-        Category::Indexing
+-    }
+-    fn doc_short(&self) -> &'static str {
+-        r"Use a search index when one is available."
+-    }
+-    fn doc_long(&self) -> &'static str {
+-        r"
+-Enable searching with an index. Without this flag, ripgrep never uses an
+-index.
+-.sp
+-ripgrep looks for an index in the following order. The first step that finds
+-one or more indexes wins:
+-.sp
+-.IP 1. 4
+-When path operands are given on the command line, each operand is interpreted
+-as an index directory and every index is searched in command line order. An
+-operand that is not a valid index is an error.
+-.sp
+-.IP 2. 4
+-The index named by the \fBRIPGREP_INDEX_PATH\fP environment variable.
+-.sp
+-.IP 3. 4
+-A valid index in a \fB.ripgrep\fP directory in the current working directory.
+-.sp
+-.IP 4. 4
+-A valid index in a \fB.ripgrep\fP directory in the nearest parent of the current
+-working directory.
+-.PP
+-If no index is found, ripgrep performs an ordinary search.
+-.sp
+-Indexed candidates are filtered by explicit glob and file-type selections,
+-hidden-file and depth settings, and the maximum file size. Ignore files,
+-including \fB.gitignore\fP, are not read or reapplied during an indexed search.
+-Options that require transformed contents or every file make the query
+-ineligible for candidate filtering and therefore trigger the fallback below.
+-.sp
+-This flag may be given at most twice. When it is given once and the query
+-cannot use an index, ripgrep performs an ordinary search. When it is given
+-twice and an index was found, ripgrep stops instead of performing an ordinary
+-search if the query cannot use the index.
+-"
+-    }
+-
+-    fn update(&self, v: FlagValue, args: &mut LowArgs) -> anyhow::Result<()> {
+-        check_indexing_allowed()?;
+-        assert!(v.unwrap_switch(), "--index has no negation");
+-        args.index = args.index.saturating_add(1);
+-        anyhow::ensure!(
+-            args.index <= 2,
+-            "-X/--index may be given at most twice"
+-        );
+-        Ok(())
+-    }
+-}
+-
+-#[cfg(test)]
+-#[test]
+-fn test_index() {
+-    if !cfg!(feature = "unstable-index") {
+-        assert!(parse_low_raw(["-X"]).is_err());
+-        return;
+-    }
+-
+-    let args = parse_low_raw(None::<&str>).unwrap();
+-    assert_eq!(0, args.index);
+-    assert_eq!(Mode::Search(SearchMode::Standard), args.mode);
+-
+-    let args = parse_low_raw(["-X"]).unwrap();
+-    assert_eq!(1, args.index);
+-    assert_eq!(Mode::Search(SearchMode::Standard), args.mode);
+-
+-    let args = parse_low_raw(["--index"]).unwrap();
+-    assert_eq!(1, args.index);
+-
+-    let args = parse_low_raw(["-XX"]).unwrap();
+-    assert_eq!(2, args.index);
+-
+-    let args = parse_low_raw(["-X", "--index"]).unwrap();
+-    assert_eq!(2, args.index);
+-
+-    let result = parse_low_raw(["-XXX"]);
+-    assert!(result.is_err(), "{result:?}");
+-}
+-
+-/// --x-crud
+-#[derive(Debug)]
+-struct IndexCrud;
+-
+-impl Flag for IndexCrud {
+-    fn is_switch(&self) -> bool {
+-        true
+-    }
+-    fn name_long(&self) -> &'static str {
+-        "x-crud"
+-    }
+-    fn doc_category(&self) -> Category {
+-        Category::Indexing
+-    }
+-    fn doc_short(&self) -> &'static str {
+-        r"Create or update a search index."
+-    }
+-    fn doc_long(&self) -> &'static str {
+-        r"
+-Create or update an index for the files and directories given on the command
+-line. When no path is given, this recursively indexes the current working
+-directory. The files added to the index are exactly those selected by
+-ripgrep's normal traversal and filtering options.
+-.sp
+-An existing file is re-indexed only when its modification time is newer than
+-the time at which it was indexed. Use \flag{x-force} to re-index every selected
+-file, including files on file systems with unreliable or deliberately
+-preserved modification times. A previously indexed path that is no longer
+-accessible is removed from the index.
+-.sp
+-ripgrep chooses the index location in the following order:
+-.sp
+-.IP 1. 4
+-The path given by \flag{x-path}.
+-.sp
+-.IP 2. 4
+-The path in the \fBRIPGREP_INDEX_PATH\fP environment variable.
+-.sp
+-.IP 3. 4
+-A valid index in a \fB.ripgrep\fP directory in the current working directory.
+-.sp
+-.IP 4. 4
+-A valid index in a \fB.ripgrep\fP directory in the nearest parent of the current
+-working directory.
+-.sp
+-.IP 5. 4
+-A \fB.ripgrep\fP directory in the current working directory, which is created
+-when necessary.
+-.PP
+-If the final location already exists but does not contain a valid index, then
+-ripgrep reports an error.
+-.sp
+-For example, this creates or incrementally updates an index for the current
+-directory:
+-.sp
+-.EX
+-    rg --x-crud
+-.EE
+-.sp
+-This updates one path in the same index:
+-.sp
+-.EX
+-    rg --x-crud path/to/file
+-.EE
+-"
+-    }
+-
+-    fn update(&self, v: FlagValue, args: &mut LowArgs) -> anyhow::Result<()> {
+-        check_indexing_allowed()?;
+-        assert!(v.unwrap_switch(), "--x-crud has no negation");
+-        args.mode.update(Mode::Index(IndexMode::Crud));
+-        Ok(())
+-    }
+-}
+-
+-#[cfg(test)]
+-#[test]
+-fn test_index_crud() {
+-    if !cfg!(feature = "unstable-index") {
+-        assert!(parse_low_raw(["--x-crud"]).is_err());
+-        return;
+-    }
+-
+-    let args = parse_low_raw(None::<&str>).unwrap();
+-    assert_eq!(Mode::Search(SearchMode::Standard), args.mode);
+-
+-    let args = parse_low_raw(["--x-crud"]).unwrap();
+-    assert_eq!(Mode::Index(IndexMode::Crud), args.mode);
+-
+-    let args = parse_low_raw(["--files", "--x-crud", "foo"]).unwrap();
+-    assert_eq!(Mode::Index(IndexMode::Crud), args.mode);
+-    assert_eq!(vec![std::ffi::OsString::from("foo")], args.positional);
+-
+-    let args = parse_low_raw(["--x-crud", "--files"]).unwrap();
+-    assert_eq!(Mode::Files, args.mode);
+-}
+-
+-/// --x-force
+-#[derive(Debug)]
+-struct IndexForce;
+-
+-impl Flag for IndexForce {
+-    fn is_switch(&self) -> bool {
+-        true
+-    }
+-    fn name_long(&self) -> &'static str {
+-        "x-force"
+-    }
+-    fn doc_category(&self) -> Category {
+-        Category::Indexing
+-    }
+-    fn doc_short(&self) -> &'static str {
+-        r"Force selected files to be re-indexed."
+-    }
+-    fn doc_long(&self) -> &'static str {
+-        r"
+-When used with \flag{x-crud}, re-index every selected file even when its
+-modification time indicates that the index is already up to date.
+-"
+-    }
+-
+-    fn update(&self, v: FlagValue, args: &mut LowArgs) -> anyhow::Result<()> {
+-        check_indexing_allowed()?;
+-        assert!(v.unwrap_switch(), "--x-force has no negation");
+-        args.index_force = true;
+-        Ok(())
+-    }
+-}
+-
+-#[cfg(test)]
+-#[test]
+-fn test_index_force() {
+-    if !cfg!(feature = "unstable-index") {
+-        assert!(parse_low_raw(["--x-force"]).is_err());
+-        return;
+-    }
+-
+-    let args = parse_low_raw(None::<&str>).unwrap();
+-    assert_eq!(false, args.index_force);
+-
+-    let args = parse_low_raw(["--x-force"]).unwrap();
+-    assert_eq!(true, args.index_force);
+-}
+-
+-/// --x-path
+-#[derive(Debug)]
+-struct IndexPath;
+-
+-impl Flag for IndexPath {
+-    fn is_switch(&self) -> bool {
+-        false
+-    }
+-    fn name_long(&self) -> &'static str {
+-        "x-path"
+-    }
+-    fn doc_variable(&self) -> Option<&'static str> {
+-        Some("PATH")
+-    }
+-    fn doc_category(&self) -> Category {
+-        Category::Indexing
+-    }
+-    fn doc_short(&self) -> &'static str {
+-        r"Set the path of the index to update."
+-    }
+-    fn doc_long(&self) -> &'static str {
+-        r"
+-Set the index path used by \flag{x-crud}. This takes precedence over
+-\fBRIPGREP_INDEX_PATH\fP and automatic discovery of a \fB.ripgrep\fP directory.
+-"
+-    }
+-    fn completion_type(&self) -> CompletionType {
+-        CompletionType::Filename
+-    }
+-
+-    fn update(&self, v: FlagValue, args: &mut LowArgs) -> anyhow::Result<()> {
+-        check_indexing_allowed()?;
+-        args.index_path = Some(PathBuf::from(v.unwrap_value()));
+-        Ok(())
+-    }
+-}
+-
+-#[cfg(test)]
+-#[test]
+-fn test_index_path() {
+-    if !cfg!(feature = "unstable-index") {
+-        assert!(parse_low_raw(["--x-path"]).is_err());
+-        return;
+-    }
+-
+-    let args = parse_low_raw(None::<&str>).unwrap();
+-    assert_eq!(None, args.index_path);
+-
+-    let args = parse_low_raw(["--x-path", "foo"]).unwrap();
+-    assert_eq!(Some(PathBuf::from("foo")), args.index_path);
+-
+-    let args = parse_low_raw(["--x-path=foo", "--x-path", "bar"]).unwrap();
+-    assert_eq!(Some(PathBuf::from("bar")), args.index_path);
+-}
+-
+ /// -v/--invert-match
+ #[derive(Debug)]
+ struct InvertMatch;
+@@ -7947,13 +7572,6 @@ fn test_word_regexp() {
+     assert_eq!(Some(BoundaryMode::Line), args.boundary);
+ }
+ 
+-fn check_indexing_allowed() -> anyhow::Result<()> {
+-    if cfg!(feature = "unstable-index") {
+-        return Ok(());
+-    }
+-    anyhow::bail!("{}", crate::flags::INDEXING_NOT_SUPPORTED)
+-}
+-
+ mod convert {
+     use std::ffi::{OsStr, OsString};
+ 
+diff --git a/crates/core/flags/doc/help.rs b/crates/core/flags/doc/help.rs
+index 174b382330..c579bd2387 100644
+--- a/crates/core/flags/doc/help.rs
++++ b/crates/core/flags/doc/help.rs
+@@ -38,17 +38,8 @@ pub(crate) fn generate_short() -> String {
+         TEMPLATE_SHORT.replace("!!VERSION!!", &version::generate_digits());
+     for (cat, (col1, col2)) in cats.iter() {
+         let var = format!("!!{name}!!", name = cat.as_str());
+-        if !cfg!(feature = "unstable-index")
+-            && matches!(cat, crate::flags::Category::Indexing)
+-        {
+-            out = out.replace(
+-                &var,
+-                &format!("  {}", crate::flags::INDEXING_NOT_SUPPORTED),
+-            );
+-        } else {
+-            let val = format_short_columns(col1, col2, maxcol1, maxcol2);
+-            out = out.replace(&var, &val);
+-        }
++        let val = format_short_columns(col1, col2, maxcol1, maxcol2);
++        out = out.replace(&var, &val);
+     }
+     out
+ }
+@@ -131,16 +122,7 @@ pub(crate) fn generate_long() -> String {
+         TEMPLATE_LONG.replace("!!VERSION!!", &version::generate_digits());
+     for (cat, value) in cats.iter() {
+         let var = format!("!!{name}!!", name = cat.as_str());
+-        if !cfg!(feature = "unstable-index")
+-            && matches!(cat, crate::flags::Category::Indexing)
+-        {
+-            out = out.replace(
+-                &var,
+-                &format!("    {}", crate::flags::INDEXING_NOT_SUPPORTED),
+-            );
+-        } else {
+-            out = out.replace(&var, value);
+-        }
++        out = out.replace(&var, value);
+     }
+     out
+ }
+diff --git a/crates/core/flags/doc/man.rs b/crates/core/flags/doc/man.rs
+index 222c14ef93..c89a6d3ac6 100644
+--- a/crates/core/flags/doc/man.rs
++++ b/crates/core/flags/doc/man.rs
+@@ -37,13 +37,7 @@ pub(crate) fn generate() -> String {
+     let mut out = TEMPLATE.replace("!!VERSION!!", &version::generate_digits());
+     for (cat, value) in cats.iter() {
+         let var = format!("!!{name}!!", name = cat.as_str());
+-        if !cfg!(feature = "unstable-index")
+-            && matches!(cat, crate::flags::Category::Indexing)
+-        {
+-            out = out.replace(&var, crate::flags::INDEXING_NOT_SUPPORTED);
+-        } else {
+-            out = out.replace(&var, value);
+-        }
++        out = out.replace(&var, value);
+     }
+     out
+ }
+diff --git a/crates/core/flags/doc/template.long.help b/crates/core/flags/doc/template.long.help
+index 7887bf154e..83c20c1afe 100644
+--- a/crates/core/flags/doc/template.long.help
++++ b/crates/core/flags/doc/template.long.help
+@@ -54,9 +54,6 @@ OUTPUT OPTIONS:
+ OUTPUT MODES:
+ !!output-modes!!
+ 
+-INDEXING:
+-!!indexing!!
+-
+ LOGGING OPTIONS:
+ !!logging!!
+ 
+diff --git a/crates/core/flags/doc/template.rg.1 b/crates/core/flags/doc/template.rg.1
+index 7e0b645deb..ac3e607797 100644
+--- a/crates/core/flags/doc/template.rg.1
++++ b/crates/core/flags/doc/template.rg.1
+@@ -114,9 +114,6 @@ In all cases, the flag specified last takes precedence.
+ .SS OUTPUT MODES
+ !!output-modes!!
+ .
+-.SS INDEXING
+-!!indexing!!
+-.
+ .SS LOGGING OPTIONS
+ !!logging!!
+ .
+diff --git a/crates/core/flags/doc/template.short.help b/crates/core/flags/doc/template.short.help
+index b27321fb0b..0a285668b5 100644
+--- a/crates/core/flags/doc/template.short.help
++++ b/crates/core/flags/doc/template.short.help
+@@ -31,9 +31,6 @@ OUTPUT OPTIONS:
+ OUTPUT MODES:
+ !!output-modes!!
+ 
+-INDEXING:
+-!!indexing!!
+-
+ LOGGING OPTIONS:
+ !!logging!!
+ 
+diff --git a/crates/core/flags/hiargs.rs b/crates/core/flags/hiargs.rs
+index fb5669872d..3498b10f43 100644
+--- a/crates/core/flags/hiargs.rs
++++ b/crates/core/flags/hiargs.rs
+@@ -61,7 +61,6 @@ pub(crate) struct HiArgs {
+     ignore_file_case_insensitive: bool,
+     ignore_file: Vec<PathBuf>,
+     include_zero: bool,
+-    index: usize,
+     invert_match: bool,
+     is_terminal_stdout: bool,
+     line_number: bool,
+@@ -122,15 +121,6 @@ impl HiArgs {
+         if let Some(ref sort) = low.sort {
+             sort.supported()?;
+         }
+-        // We aggressively ban things from indexing at present.
+-        if (low.index > 0 || matches!(low.mode, Mode::Index(_)))
+-            && let Some(flag) = low.indexing_unsupported_flag()
+-        {
+-            anyhow::bail!(
+-                "flag --{} does not support indexing",
+-                flag.name_long()
+-            );
+-        }
+ 
+         // We modify the mode in-place on `low` so that subsequent conversions
+         // see the correct mode.
+@@ -288,7 +278,6 @@ impl HiArgs {
+             ignore_file: low.ignore_file,
+             ignore_file_case_insensitive: low.ignore_file_case_insensitive,
+             include_zero: low.include_zero,
+-            index: low.index,
+             invert_match: low.invert_match,
+             is_terminal_stdout: state.is_terminal_stdout,
+             line_number,
+@@ -927,31 +916,6 @@ impl HiArgs {
+         }
+         Ok(builder)
+     }
+-
+-    pub(crate) fn index(&self) -> usize {
+-        self.index
+-    }
+-
+-    #[cfg(feature = "unstable-index")]
+-    pub(crate) fn index_write(&self) -> anyhow::Result<grep_index::Index> {
+-        let index = grep_index::IndexDiscovery::new()
+-            .create(true)
+-            .discover()?
+-            .ok_or_else(|| {
+-                anyhow::anyhow!(
+-                    "failed to find a place to create/update an index"
+-                )
+-            })?;
+-        Ok(index)
+-    }
+-
+-    #[cfg(feature = "unstable-index")]
+-    pub(crate) fn index_read(&self) -> anyhow::Result<grep_index::Index> {
+-        let index = grep_index::IndexDiscovery::new().discover()?.ok_or_else(
+-            || anyhow::anyhow!("failed to find an index to read"),
+-        )?;
+-        Ok(index)
+-    }
+ }
+ 
+ /// State that only needs to be computed once during argument parsing.
+diff --git a/crates/core/flags/lowargs.rs b/crates/core/flags/lowargs.rs
+index 08775d0b6c..a4d4b884aa 100644
+--- a/crates/core/flags/lowargs.rs
++++ b/crates/core/flags/lowargs.rs
+@@ -65,9 +65,6 @@ pub(crate) struct LowArgs {
+     pub(crate) ignore_file: Vec<PathBuf>,
+     pub(crate) ignore_file_case_insensitive: bool,
+     pub(crate) include_zero: bool,
+-    pub(crate) index: usize,
+-    pub(crate) index_force: bool,
+-    pub(crate) index_path: Option<PathBuf>,
+     pub(crate) invert_match: bool,
+     pub(crate) line_number: Option<bool>,
+     pub(crate) logging: Option<LoggingMode>,
+@@ -156,8 +153,6 @@ pub(crate) enum SpecialMode {
+ pub(crate) enum Mode {
+     /// ripgrep will execute a search of some kind.
+     Search(SearchMode),
+-    /// Create or update a search index.
+-    Index(IndexMode),
+     /// Show the files that *would* be searched, but don't actually search
+     /// them.
+     Files,
+@@ -194,13 +189,6 @@ impl Mode {
+     }
+ }
+ 
+-/// The kind of index operation that ripgrep should perform.
+-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+-pub(crate) enum IndexMode {
+-    /// Add, update or remove files in an index.
+-    Crud,
+-}
+-
+ /// The kind of search that ripgrep is going to perform.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub(crate) enum SearchMode {
+diff --git a/crates/core/flags/mod.rs b/crates/core/flags/mod.rs
+index 6a3c032168..7bf46db9a6 100644
+--- a/crates/core/flags/mod.rs
++++ b/crates/core/flags/mod.rs
+@@ -47,9 +47,6 @@ mod hiargs;
+ mod lowargs;
+ mod parse;
+ 
+-const INDEXING_NOT_SUPPORTED: &'static str =
+-    "Indexing is not supported in this build of ripgrep.";
+-
+ /// A trait that encapsulates the definition of an optional flag for ripgrep.
+ ///
+ /// This trait is meant to be used via dynamic dispatch. Namely, the `defs`
+@@ -208,9 +205,6 @@ enum Category {
+     /// lines, and instead just print the total count of matches for each file
+     /// searched.
+     OutputModes,
+-    /// Flags related to indexing. This section includes flags both for
+-    /// searching an index and updating an index.
+-    Indexing,
+     /// Flags related to logging behavior such as emitting non-fatal error
+     /// messages or printing search statistics.
+     Logging,
+@@ -232,7 +226,6 @@ impl Category {
+             Category::Filter => "filter",
+             Category::Output => "output",
+             Category::OutputModes => "output-modes",
+-            Category::Indexing => "indexing",
+             Category::Logging => "logging",
+             Category::OtherBehaviors => "other-behaviors",
+         }
+diff --git a/crates/core/index/disabled.rs b/crates/core/index/disabled.rs
+deleted file mode 100644
+index 3388656e19..0000000000
+--- a/crates/core/index/disabled.rs
++++ /dev/null
+@@ -1,9 +0,0 @@
+-use crate::flags::{HiArgs, SearchMode};
+-
+-pub(crate) fn write(_args: &HiArgs) -> anyhow::Result<()> {
+-    anyhow::bail!("indexing not enabled in this build of ripgrep")
+-}
+-
+-pub(crate) fn read(_args: &HiArgs, _mode: SearchMode) -> anyhow::Result<bool> {
+-    anyhow::bail!("indexing not enabled in this build of ripgrep")
+-}
+diff --git a/crates/core/index/enabled.rs b/crates/core/index/enabled.rs
+deleted file mode 100644
+index 525dfa6335..0000000000
+--- a/crates/core/index/enabled.rs
++++ /dev/null
+@@ -1,16 +0,0 @@
+-use crate::flags::{HiArgs, SearchMode};
+-
+-pub(crate) fn write(args: &HiArgs) -> anyhow::Result<()> {
+-    let _index = args.index_write()?;
+-    Ok(())
+-}
+-
+-pub(crate) fn read(args: &HiArgs, mode: SearchMode) -> anyhow::Result<bool> {
+-    let _index = args.index_read()?;
+-    // Do an exhaustive search for now.
+-    if args.threads() == 1 {
+-        crate::search(args, mode)
+-    } else {
+-        crate::search_parallel(args, mode)
+-    }
+-}
+diff --git a/crates/core/index/mod.rs b/crates/core/index/mod.rs
+deleted file mode 100644
+index 8d80ceee4f..0000000000
+--- a/crates/core/index/mod.rs
++++ /dev/null
+@@ -1,8 +0,0 @@
+-pub(crate) use self::imp::*;
+-
+-#[cfg(not(feature = "unstable-index"))]
+-#[path = "disabled.rs"]
+-mod imp;
+-#[cfg(feature = "unstable-index")]
+-#[path = "enabled.rs"]
+-mod imp;
+diff --git a/crates/core/main.rs b/crates/core/main.rs
+index f5fef53bac..c74e645f7c 100644
+--- a/crates/core/main.rs
++++ b/crates/core/main.rs
+@@ -13,7 +13,6 @@ mod messages;
+ 
+ mod flags;
+ mod haystack;
+-mod index;
+ mod logger;
+ mod search;
+ 
+@@ -85,13 +84,8 @@ fn run(result: crate::flags::ParseResult<HiArgs>) -> anyhow::Result<ExitCode> {
+     };
+     let matched = match args.mode() {
+         Mode::Search(_) if !args.matches_possible() => false,
+-        Mode::Search(mode) if args.index() > 0 => index::read(&args, mode)?,
+         Mode::Search(mode) if args.threads() == 1 => search(&args, mode)?,
+         Mode::Search(mode) => search_parallel(&args, mode)?,
+-        Mode::Index(_) => {
+-            index::write(&args)?;
+-            return Ok(ExitCode::from(0));
+-        }
+         Mode::Files if args.threads() == 1 => files(&args)?,
+         Mode::Files => files_parallel(&args)?,
+         Mode::Types => return types(&args),
+diff --git a/crates/index/Cargo.toml b/crates/index/Cargo.toml
+deleted file mode 100644
+index f82d09d377..0000000000
+--- a/crates/index/Cargo.toml
++++ /dev/null
+@@ -1,23 +0,0 @@
+-[package]
+-publish = false
+-name = "grep-index"
+-version = "0.0.1"  #:version
+-authors = ["Andrew Gallant <jamslam@gmail.com>"]
+-description = """
+-Grep, but with an index.
+-"""
+-documentation = "https://docs.rs/grep-index"
+-homepage = "https://github.com/BurntSushi/ripgrep"
+-repository = "https://github.com/BurntSushi/ripgrep"
+-readme = "README.md"
+-keywords = ["regex", "grep", "search", "index", "ngram"]
+-license = "Unlicense/MIT"
+-edition = "2024"
+-rust-version = "1.96"
+-
+-[dependencies]
+-anyhow = "1.0.103"
+-bstr = "1.12.0"
+-fst = "0.4.7"
+-redb = "4.1.0"
+-regex-syntax = "0.8.8"
+diff --git a/crates/index/LICENSE-MIT b/crates/index/LICENSE-MIT
+deleted file mode 100644
+index 3b0a5dc09c..0000000000
+--- a/crates/index/LICENSE-MIT
++++ /dev/null
+@@ -1,21 +0,0 @@
+-The MIT License (MIT)
+-
+-Copyright (c) 2015 Andrew Gallant
+-
+-Permission is hereby granted, free of charge, to any person obtaining a copy
+-of this software and associated documentation files (the "Software"), to deal
+-in the Software without restriction, including without limitation the rights
+-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-copies of the Software, and to permit persons to whom the Software is
+-furnished to do so, subject to the following conditions:
+-
+-The above copyright notice and this permission notice shall be included in
+-all copies or substantial portions of the Software.
+-
+-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-THE SOFTWARE.
+diff --git a/crates/index/README.md b/crates/index/README.md
+deleted file mode 100644
+index 00d7bdd40d..0000000000
+--- a/crates/index/README.md
++++ /dev/null
+@@ -1 +0,0 @@
+-WIP
+diff --git a/crates/index/UNLICENSE b/crates/index/UNLICENSE
+deleted file mode 100644
+index 68a49daad8..0000000000
+--- a/crates/index/UNLICENSE
++++ /dev/null
+@@ -1,24 +0,0 @@
+-This is free and unencumbered software released into the public domain.
+-
+-Anyone is free to copy, modify, publish, use, compile, sell, or
+-distribute this software, either in source code form or as a compiled
+-binary, for any purpose, commercial or non-commercial, and by any
+-means.
+-
+-In jurisdictions that recognize copyright laws, the author or authors
+-of this software dedicate any and all copyright interest in the
+-software to the public domain. We make this dedication for the benefit
+-of the public at large and to the detriment of our heirs and
+-successors. We intend this dedication to be an overt act of
+-relinquishment in perpetuity of all present and future rights to this
+-software under copyright law.
+-
+-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+-IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+-OTHER DEALINGS IN THE SOFTWARE.
+-
+-For more information, please refer to <http://unlicense.org/>
+diff --git a/crates/index/src/index.rs b/crates/index/src/index.rs
+deleted file mode 100644
+index 6c8e4cd62b..0000000000
+--- a/crates/index/src/index.rs
++++ /dev/null
+@@ -1,217 +0,0 @@
+-use std::{
+-    ffi::{OsStr, OsString},
+-    path::{Path, PathBuf},
+-};
+-
+-use anyhow::Context;
+-use redb::{Database, ReadOnlyDatabase};
+-
+-const INDEX_FILE_NAME: &str = "index.db";
+-
+-#[derive(Debug)]
+-pub struct Index {
+-    path: PathBuf,
+-    db: Handle,
+-}
+-
+-impl Index {
+-    pub fn builder() -> IndexBuilder {
+-        IndexBuilder::new()
+-    }
+-
+-    pub fn exists(path: impl AsRef<Path>) -> bool {
+-        let path = path.as_ref();
+-        path.is_dir() && path.join(INDEX_FILE_NAME).is_file()
+-    }
+-
+-    pub fn path(&self) -> &Path {
+-        &self.path
+-    }
+-}
+-
+-#[derive(Default)]
+-pub struct IndexBuilder {
+-    create: bool,
+-    write: bool,
+-}
+-
+-impl IndexBuilder {
+-    pub fn new() -> IndexBuilder {
+-        IndexBuilder::default()
+-    }
+-
+-    pub fn build(&self, path: impl AsRef<Path>) -> anyhow::Result<Index> {
+-        let path = path.as_ref();
+-        if self.create {
+-            self.build_create(path)
+-        } else {
+-            self.build_open(path)
+-        }
+-    }
+-
+-    fn build_create(&self, path: &Path) -> anyhow::Result<Index> {
+-        if let Err(err) = std::fs::create_dir(path)
+-            && err.kind() != std::io::ErrorKind::AlreadyExists
+-        {
+-            return Err(err).with_context(|| {
+-                format!("{}: failed to create directory", path.display())
+-            });
+-        }
+-        let path = path.join(INDEX_FILE_NAME);
+-        // TODO: Retry here if the database is already open.
+-        let db = Database::create(&path).with_context(|| {
+-            format!("{}: failed to create database", path.display())
+-        })?;
+-        let index = Index { path, db: Handle::ReadWrite(db) };
+-        Ok(index)
+-    }
+-
+-    fn build_open(&self, path: &Path) -> anyhow::Result<Index> {
+-        let path = path.join(INDEX_FILE_NAME);
+-        // TODO: Retry here if the database is already open.
+-        let db = if self.write {
+-            Handle::ReadWrite(Database::open(&path).with_context(|| {
+-                format!(
+-                    "{}: failed to open read-write database",
+-                    path.display()
+-                )
+-            })?)
+-        } else {
+-            Handle::ReadOnly(ReadOnlyDatabase::open(&path).with_context(
+-                || {
+-                    format!(
+-                        "{}: failed to open read-only database",
+-                        path.display()
+-                    )
+-                },
+-            )?)
+-        };
+-        let index = Index { path, db };
+-        Ok(index)
+-    }
+-
+-    pub fn create(&mut self, yes: bool) -> &mut IndexBuilder {
+-        self.create = yes;
+-        self
+-    }
+-
+-    pub fn write(&mut self, yes: bool) -> &mut IndexBuilder {
+-        self.write = yes;
+-        self
+-    }
+-}
+-
+-pub struct IndexDiscovery {
+-    builder: IndexBuilder,
+-    cwd: Option<PathBuf>,
+-    env_name: OsString,
+-    dir_name: OsString,
+-}
+-
+-impl IndexDiscovery {
+-    pub fn new() -> IndexDiscovery {
+-        IndexDiscovery {
+-            builder: IndexBuilder::new(),
+-            cwd: None,
+-            env_name: "RIPGREP_INDEX_PATH".into(),
+-            dir_name: ".ripgrep".into(),
+-        }
+-    }
+-
+-    pub fn discover(&self) -> anyhow::Result<Option<Index>> {
+-        let cwd = match self.cwd.clone() {
+-            Some(cwd) => cwd,
+-            None => std::env::current_dir()
+-                .context("failed to get current working directory")?,
+-        };
+-        anyhow::ensure!(
+-            cwd.is_absolute(),
+-            "current working directory `{}` is not absolute",
+-            cwd.display()
+-        );
+-        if let Some(env_path) = std::env::var_os(&self.env_name) {
+-            if !env_path.is_empty() {
+-                return Ok(Some(self.builder.build(env_path)?));
+-            }
+-        }
+-        for ancestor in cwd.ancestors() {
+-            let path = ancestor.join(&self.dir_name);
+-            // I guess this is subject to TOCTOU problems, but the underlying
+-            // embedded database should handle synchronization problems for us.
+-            if self.builder.create || Index::exists(&path) {
+-                return Ok(Some(self.builder.build(&path)?));
+-            }
+-        }
+-        Ok(None)
+-    }
+-
+-    pub fn cwd(&mut self, cwd: impl AsRef<Path>) -> &mut IndexDiscovery {
+-        self.cwd = Some(cwd.as_ref().into());
+-        self
+-    }
+-
+-    pub fn env_name(
+-        &mut self,
+-        name: impl AsRef<OsStr>,
+-    ) -> &mut IndexDiscovery {
+-        self.env_name = name.as_ref().into();
+-        self
+-    }
+-
+-    pub fn dir_name(
+-        &mut self,
+-        name: impl AsRef<OsStr>,
+-    ) -> &mut IndexDiscovery {
+-        self.dir_name = name.as_ref().into();
+-        self
+-    }
+-
+-    pub fn create(&mut self, yes: bool) -> &mut IndexDiscovery {
+-        self.builder.create(yes);
+-        self
+-    }
+-}
+-
+-enum Handle {
+-    ReadWrite(Database),
+-    ReadOnly(ReadOnlyDatabase),
+-}
+-
+-impl Handle {
+-    fn begin_read(
+-        &self,
+-    ) -> Result<redb::ReadTransaction, redb::TransactionError> {
+-        use redb::ReadableDatabase;
+-        match self {
+-            Handle::ReadWrite(database) => database.begin_read(),
+-            Handle::ReadOnly(database) => database.begin_read(),
+-        }
+-    }
+-
+-    fn read_write(&self) -> anyhow::Result<&Database> {
+-        match self {
+-            Handle::ReadWrite(database) => Ok(database),
+-            Handle::ReadOnly(_) => {
+-                anyhow::bail!("index was opened read-only")
+-            }
+-        }
+-    }
+-
+-    fn read_write_mut(&mut self) -> anyhow::Result<&mut Database> {
+-        match self {
+-            Handle::ReadWrite(database) => Ok(database),
+-            Handle::ReadOnly(_) => {
+-                anyhow::bail!("index was opened read-only")
+-            }
+-        }
+-    }
+-}
+-
+-impl std::fmt::Debug for Handle {
+-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+-        match *self {
+-            Handle::ReadWrite(_) => write!(f, "<redb read-write database>"),
+-            Handle::ReadOnly(_) => write!(f, "<redb read-only database>"),
+-        }
+-    }
+-}
+diff --git a/crates/index/src/lib.rs b/crates/index/src/lib.rs
+deleted file mode 100644
+index 7a401bbf77..0000000000
+--- a/crates/index/src/lib.rs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#![allow(warnings)]
+-
+-pub use index::{Index, IndexBuilder, IndexDiscovery};
+-
+-mod index;
+-pub mod literal;
+diff --git a/crates/index/src/literal.rs b/crates/index/src/literal.rs
+deleted file mode 100644
+index 2c7354f0bd..0000000000
+--- a/crates/index/src/literal.rs
++++ /dev/null
+@@ -1,1000 +0,0 @@
+-// This module is currently a prototype. It was inspired a bit by a similar
+-// implementation in codesearch[1]. The main difference is that it isn't fixed
+-// to a particular ngram size and isn't quite as smart about reducing memory
+-// usage. This was hastily written in order to bootstrap ngram extraction so
+-// that other things in this crate could be worked on.
+-//
+-// [1] - https://github.com/google/codesearch
+-
+-use std::cmp;
+-use std::mem;
+-
+-use bstr::{BString, ByteVec};
+-use regex_syntax::hir::{self, Hir, HirKind};
+-
+-#[derive(Clone)]
+-pub enum GramQuery {
+-    Literal(BString),
+-    And(Vec<GramQuery>),
+-    Or(Vec<GramQuery>),
+-}
+-
+-impl GramQuery {
+-    fn nothing() -> GramQuery {
+-        GramQuery::Or(vec![])
+-    }
+-
+-    fn anything() -> GramQuery {
+-        GramQuery::And(vec![])
+-    }
+-
+-    fn is_nothing(&self) -> bool {
+-        match *self {
+-            GramQuery::Or(ref qs) => qs.is_empty(),
+-            _ => false,
+-        }
+-    }
+-
+-    fn is_anything(&self) -> bool {
+-        match *self {
+-            GramQuery::And(ref qs) => qs.is_empty(),
+-            _ => false,
+-        }
+-    }
+-
+-    fn is_literal(&self) -> bool {
+-        matches!(*self, GramQuery::Literal(..))
+-    }
+-
+-    fn is_and(&self) -> bool {
+-        matches!(*self, GramQuery::And(..))
+-    }
+-
+-    fn is_or(&self) -> bool {
+-        matches!(*self, GramQuery::Or(..))
+-    }
+-
+-    fn unwrap(self) -> GramQuery {
+-        match self {
+-            q @ GramQuery::Literal(_) => q,
+-            GramQuery::And(qs) => GramQuery::and(qs),
+-            GramQuery::Or(qs) => GramQuery::or(qs),
+-        }
+-    }
+-
+-    fn unwrap_literal(self) -> BString {
+-        match self {
+-            GramQuery::Literal(lit) => lit,
+-            GramQuery::And(_) => panic!("expected literal, but got And"),
+-            GramQuery::Or(_) => panic!("expected literal, but got Or"),
+-        }
+-    }
+-
+-    fn or(mut queries: Vec<GramQuery>) -> GramQuery {
+-        queries.retain(|q| !q.is_nothing());
+-
+-        if queries.iter().any(GramQuery::is_anything) {
+-            GramQuery::anything()
+-        } else if queries.len() == 1 {
+-            queries.pop().unwrap()
+-        } else if queries.iter().all(GramQuery::is_literal) {
+-            let set = LiteralSet::from_vec(
+-                queries.into_iter().map(GramQuery::unwrap_literal).collect(),
+-            );
+-            GramQuery::from_set_or(set)
+-        } else if queries.iter().any(GramQuery::is_or) {
+-            let mut flat = vec![];
+-            for q in queries {
+-                match q {
+-                    GramQuery::Or(qs) => {
+-                        flat.extend(qs);
+-                    }
+-                    q => flat.push(q),
+-                }
+-            }
+-            GramQuery::or(flat)
+-        } else {
+-            GramQuery::Or(queries)
+-        }
+-    }
+-
+-    fn and(mut queries: Vec<GramQuery>) -> GramQuery {
+-        queries.retain(|q| !q.is_anything());
+-
+-        if queries.iter().any(GramQuery::is_nothing) {
+-            GramQuery::nothing()
+-        } else if queries.len() == 1 {
+-            queries.pop().unwrap()
+-        } else if queries.iter().all(GramQuery::is_literal) {
+-            let set = LiteralSet::from_vec(
+-                queries.into_iter().map(GramQuery::unwrap_literal).collect(),
+-            );
+-            GramQuery::from_set_and(set)
+-        } else if queries.iter().any(GramQuery::is_and) {
+-            let mut flat = vec![];
+-            for q in queries {
+-                match q {
+-                    GramQuery::And(qs) => {
+-                        flat.extend(qs);
+-                    }
+-                    q => flat.push(q),
+-                }
+-            }
+-            GramQuery::and(flat)
+-        } else {
+-            GramQuery::And(queries)
+-        }
+-    }
+-
+-    fn from_set_or(mut set: LiteralSet) -> GramQuery {
+-        if set.is_empty() {
+-            GramQuery::anything()
+-        } else if set.len() == 1 {
+-            GramQuery::Literal(set.lits.pop().unwrap())
+-        } else {
+-            let lits: Vec<_> =
+-                set.lits.into_iter().map(GramQuery::Literal).collect();
+-            GramQuery::Or(lits)
+-        }
+-    }
+-
+-    fn from_set_and(mut set: LiteralSet) -> GramQuery {
+-        if set.is_empty() {
+-            GramQuery::anything()
+-        } else if set.len() == 1 {
+-            GramQuery::Literal(set.lits.pop().unwrap())
+-        } else {
+-            let lits: Vec<_> =
+-                set.lits.into_iter().map(GramQuery::Literal).collect();
+-            GramQuery::And(lits)
+-        }
+-    }
+-
+-    fn union(&mut self, q2: GramQuery) {
+-        use self::GramQuery::*;
+-
+-        let (or, and) = (GramQuery::or, GramQuery::and);
+-        let q1 = mem::replace(self, GramQuery::nothing());
+-        match (q1, q2) {
+-            (Literal(lit1), Literal(lit2)) => {
+-                // let set = LiteralSet::from_vec(vec![lit1, lit2]);
+-                // *self = GramQuery::from_set_or(set);
+-                *self = or(vec![Literal(lit1), Literal(lit2)]);
+-            }
+-            (Literal(lit1), And(qs2)) => {
+-                *self = or(vec![Literal(lit1), and(qs2)]);
+-            }
+-            (Literal(lit1), Or(mut qs2)) => {
+-                qs2.push(Literal(lit1));
+-                *self = or(qs2);
+-            }
+-            (And(qs1), And(qs2)) => {
+-                if qs1.iter().all(GramQuery::is_literal)
+-                    && qs2.iter().all(GramQuery::is_literal)
+-                {
+-                    let (common, not1, not2) = factor(qs1, qs2);
+-                    let mut disjuncts = vec![];
+-                    if !not1.is_empty() {
+-                        disjuncts.push(GramQuery::from_set_and(not1));
+-                    }
+-                    if !not2.is_empty() {
+-                        disjuncts.push(GramQuery::from_set_and(not2));
+-                    }
+-                    let mut conjuncts = vec![];
+-                    if !common.is_empty() {
+-                        conjuncts.push(GramQuery::from_set_and(common));
+-                    }
+-                    if !disjuncts.is_empty() {
+-                        conjuncts.push(or(disjuncts));
+-                    }
+-                    *self = and(conjuncts);
+-                } else {
+-                    *self = or(vec![and(qs1), and(qs2)]);
+-                }
+-            }
+-            (And(qs1), q2) => {
+-                *self = or(vec![and(qs1), q2]);
+-            }
+-            (Or(mut qs1), q2) => {
+-                qs1.push(q2);
+-                *self = or(qs1);
+-            }
+-        }
+-    }
+-
+-    fn intersect(&mut self, q2: GramQuery) {
+-        use self::GramQuery::*;
+-
+-        let (or, and) = (GramQuery::or, GramQuery::and);
+-        let q1 = mem::replace(self, GramQuery::nothing()).unwrap();
+-        let q2 = q2.unwrap();
+-        match (q1, q2) {
+-            (Literal(lit1), Literal(lit2)) => {
+-                *self = and(vec![Literal(lit1), Literal(lit2)]);
+-            }
+-            (Literal(lit1), And(mut qs2)) => {
+-                qs2.push(Literal(lit1));
+-                *self = and(qs2);
+-            }
+-            (Literal(lit1), Or(qs2)) => {
+-                *self = and(vec![Literal(lit1), or(qs2)]);
+-            }
+-            (And(mut qs1), q2) => {
+-                qs1.push(q2);
+-                *self = and(qs1);
+-            }
+-            (Or(qs1), Or(qs2)) => {
+-                if qs1.iter().all(GramQuery::is_literal)
+-                    && qs2.iter().all(GramQuery::is_literal)
+-                {
+-                    let (common, not1, not2) = factor(qs1, qs2);
+-                    let mut conjuncts = vec![];
+-                    if !not1.is_empty() {
+-                        conjuncts.push(GramQuery::from_set_or(not1));
+-                    }
+-                    if !not2.is_empty() {
+-                        conjuncts.push(GramQuery::from_set_or(not2));
+-                    }
+-                    let mut disjuncts = vec![];
+-                    if !common.is_empty() {
+-                        disjuncts.push(GramQuery::from_set_or(common));
+-                    }
+-                    if !conjuncts.is_empty() {
+-                        disjuncts.push(and(conjuncts));
+-                    }
+-                    *self = or(disjuncts);
+-                } else {
+-                    *self = and(vec![or(qs1), or(qs2)]);
+-                }
+-            }
+-            (Or(qs1), q2) => {
+-                *self = and(vec![or(qs1), q2]);
+-            }
+-        }
+-    }
+-
+-    fn and_ngrams(&mut self, size: usize, set: &LiteralSet) {
+-        if set.min_len() < size {
+-            return;
+-        }
+-        let mut qor = GramQuery::nothing();
+-        for lit in &set.lits {
+-            if lit.len() < size {
+-                continue;
+-            }
+-
+-            let mut set = LiteralSet::new();
+-            set.extend(ngrams(size, lit).map(BString::from));
+-            qor.union(GramQuery::from_set_and(set));
+-        }
+-        self.intersect(qor);
+-    }
+-}
+-
+-impl std::fmt::Debug for GramQuery {
+-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+-        if f.alternate() {
+-            return match *self {
+-                GramQuery::Literal(ref lit) => {
+-                    f.debug_tuple("Literal").field(lit).finish()
+-                }
+-                GramQuery::And(ref qs) => {
+-                    f.debug_tuple("And").field(qs).finish()
+-                }
+-                GramQuery::Or(ref qs) => {
+-                    f.debug_tuple("Or").field(qs).finish()
+-                }
+-            };
+-        }
+-
+-        match *self {
+-            GramQuery::Literal(ref lit) => {
+-                let x = format!("{:?}", lit);
+-                write!(f, "'{}'", &x[1..x.len() - 1])
+-            }
+-            GramQuery::And(ref qs) => {
+-                let it = qs.iter().map(|q| {
+-                    if q.is_literal() {
+-                        format!("{:?}", q)
+-                    } else {
+-                        format!("({:?})", q)
+-                    }
+-                });
+-                write!(f, "{}", it.collect::<Vec<String>>().join(" & "))
+-            }
+-            GramQuery::Or(ref qs) => {
+-                let it = qs.iter().map(|q| {
+-                    if q.is_literal() {
+-                        format!("{:?}", q)
+-                    } else {
+-                        format!("({:?})", q)
+-                    }
+-                });
+-                write!(f, "{}", it.collect::<Vec<String>>().join(" | "))
+-            }
+-        }
+-    }
+-}
+-
+-#[derive(Clone, Debug)]
+-pub struct Analysis {
+-    size: usize,
+-    query: GramQuery,
+-    exact: LiteralSet,
+-    prefix: LiteralSet,
+-    suffix: LiteralSet,
+-}
+-
+-impl Analysis {
+-    fn exact(size: usize, set: LiteralSet) -> Analysis {
+-        Analysis {
+-            size,
+-            query: GramQuery::anything(),
+-            exact: set,
+-            prefix: LiteralSet::new(),
+-            suffix: LiteralSet::new(),
+-        }
+-    }
+-
+-    fn anything(size: usize) -> Analysis {
+-        Analysis {
+-            size,
+-            query: GramQuery::anything(),
+-            exact: LiteralSet::new(),
+-            prefix: LiteralSet::new(),
+-            suffix: LiteralSet::new(),
+-        }
+-    }
+-
+-    fn exact_one(size: usize, string: BString) -> Analysis {
+-        Analysis {
+-            size,
+-            query: GramQuery::anything(),
+-            exact: LiteralSet::single(string),
+-            prefix: LiteralSet::new(),
+-            suffix: LiteralSet::new(),
+-        }
+-    }
+-
+-    fn empty_string(size: usize) -> Analysis {
+-        Analysis::exact(size, LiteralSet::single(BString::from("")))
+-    }
+-
+-    fn max_len(&self) -> usize {
+-        cmp::max(
+-            self.exact.len(),
+-            cmp::max(self.prefix.len(), self.suffix.len()),
+-        )
+-    }
+-
+-    fn is_exact(&self) -> bool {
+-        !self.exact.is_empty()
+-    }
+-
+-    fn make_inexact(&mut self) {
+-        if !self.is_exact() {
+-            return;
+-        }
+-        self.prefix = mem::replace(&mut self.exact, LiteralSet::new());
+-        self.suffix = self.prefix.clone();
+-    }
+-
+-    fn save_exact(&mut self) {
+-        self.query.and_ngrams(self.size, &self.exact);
+-    }
+-
+-    fn union(&mut self, mut o: Analysis) {
+-        if self.is_exact() && o.is_exact() {
+-            self.exact.union(o.exact);
+-        } else if self.is_exact() {
+-            self.save_exact();
+-            self.make_inexact();
+-            self.prefix.union(o.prefix);
+-            self.suffix.union(o.suffix);
+-        } else if o.is_exact() {
+-            o.save_exact();
+-            self.prefix.union(o.exact.clone());
+-            self.suffix.union(o.exact);
+-        } else {
+-            self.prefix.union(o.prefix);
+-            self.suffix.union(o.suffix);
+-        }
+-        self.query.union(o.query);
+-        self.simplify();
+-    }
+-
+-    fn concat(&mut self, mut o: Analysis) {
+-        let inex_cross = if self.is_exact() && o.is_exact() {
+-            self.exact.cross(o.exact);
+-            None
+-        } else {
+-            let self_exact = self.is_exact();
+-            let o_exact = o.is_exact();
+-            self.make_inexact();
+-            o.make_inexact();
+-
+-            let inex_cross = if !self_exact && !o_exact {
+-                let mut cross = self.suffix.clone();
+-                cross.cross(o.prefix.clone());
+-                Some(cross)
+-            } else {
+-                None
+-            };
+-
+-            if self_exact {
+-                self.prefix.cross(o.prefix);
+-            } else if self.prefix.has_empty() {
+-                self.prefix.union(o.prefix);
+-            }
+-            if o_exact {
+-                self.suffix.cross(o.suffix);
+-            } else if self.suffix.has_empty() {
+-                self.suffix.union(o.suffix);
+-            } else {
+-                self.suffix = o.suffix;
+-            }
+-            inex_cross
+-        };
+-        self.query.intersect(o.query);
+-        if let Some(cross) = inex_cross {
+-            self.query.and_ngrams(self.size, &cross);
+-        }
+-        self.simplify();
+-    }
+-
+-    fn simplify(&mut self) {
+-        if self.is_exact() && self.exact.min_len() >= (self.size + 1) {
+-            self.save_exact();
+-            for lit in &self.exact.lits {
+-                if lit.len() < self.size {
+-                    self.prefix.lits.push(lit.clone());
+-                    self.suffix.lits.push(lit.clone());
+-                } else {
+-                    self.prefix.lits.push(lit[..self.size - 1].into());
+-                    self.suffix
+-                        .lits
+-                        .push(lit[lit.len() - (self.size - 1)..].into());
+-                }
+-            }
+-            self.exact.clear();
+-            self.prefix.canonicalize();
+-            self.suffix.canonicalize();
+-        }
+-        if !self.is_exact() {
+-            self.simplify_prefix();
+-            self.simplify_suffix();
+-        }
+-    }
+-
+-    fn finalize(&mut self) {
+-        if self.is_exact() && self.exact.min_len() >= self.size {
+-            self.save_exact();
+-            for lit in &self.exact.lits {
+-                if lit.len() < self.size {
+-                    self.prefix.lits.push(lit.clone());
+-                    self.suffix.lits.push(lit.clone());
+-                } else {
+-                    self.prefix.lits.push(lit[..self.size - 1].into());
+-                    self.suffix
+-                        .lits
+-                        .push(lit[lit.len() - (self.size - 1)..].into());
+-                }
+-            }
+-            self.exact.clear();
+-            self.prefix.canonicalize();
+-            self.suffix.canonicalize();
+-        }
+-        if !self.is_exact() {
+-            self.simplify_prefix();
+-            self.simplify_suffix();
+-        }
+-    }
+-
+-    fn simplify_prefix(&mut self) {
+-        self.query.and_ngrams(self.size, &self.prefix);
+-        self.prefix.retain_prefix(self.size - 1);
+-    }
+-
+-    fn simplify_suffix(&mut self) {
+-        self.query.and_ngrams(self.size, &self.suffix);
+-        self.suffix.retain_suffix(self.size - 1);
+-    }
+-}
+-
+-#[derive(Clone, Debug)]
+-struct LiteralSet {
+-    lits: Vec<BString>,
+-}
+-
+-impl LiteralSet {
+-    fn new() -> LiteralSet {
+-        LiteralSet { lits: vec![] }
+-    }
+-
+-    fn single(lit: BString) -> LiteralSet {
+-        LiteralSet { lits: vec![lit] }
+-    }
+-
+-    fn from_vec(lits: Vec<BString>) -> LiteralSet {
+-        let mut set = LiteralSet { lits };
+-        set.canonicalize();
+-        set
+-    }
+-
+-    fn clear(&mut self) {
+-        self.lits.clear();
+-    }
+-
+-    fn retain_prefix(&mut self, max: usize) {
+-        for lit in &mut self.lits {
+-            lit.truncate(max);
+-        }
+-        self.canonicalize();
+-    }
+-
+-    fn retain_suffix(&mut self, max: usize) {
+-        for lit in &mut self.lits {
+-            if lit.len() <= max {
+-                continue;
+-            }
+-            let start = lit.len() - max;
+-            lit.drain(..start);
+-        }
+-        self.canonicalize();
+-    }
+-
+-    fn extend<I: IntoIterator<Item = BString>>(&mut self, it: I) {
+-        self.lits.extend(it);
+-        self.canonicalize();
+-    }
+-
+-    fn canonicalize(&mut self) {
+-        self.lits.sort();
+-        self.lits.dedup();
+-    }
+-
+-    fn factor(self, o: LiteralSet) -> (LiteralSet, LiteralSet, LiteralSet) {
+-        // TODO: Do this without cloning every literal.
+-
+-        let (set1, set2) = (self.lits, o.lits);
+-        let (mut common, mut not1, mut not2) = (vec![], vec![], vec![]);
+-
+-        let (mut i1, mut i2) = (0, 0);
+-        while i1 < set1.len() && i2 < set2.len() {
+-            if set1[i1] < set2[i2] {
+-                not1.push(set1[i1].clone());
+-                i1 += 1;
+-            } else if set2[i2] < set1[i1] {
+-                not2.push(set2[i2].clone());
+-                i2 += 1;
+-            } else {
+-                common.push(set1[i1].clone());
+-                i1 += 1;
+-                i2 += 1;
+-            }
+-        }
+-        while i1 < set1.len() {
+-            not1.push(set1[i1].clone());
+-            i1 += 1;
+-        }
+-        while i2 < set2.len() {
+-            not2.push(set2[i2].clone());
+-            i2 += 1;
+-        }
+-        (
+-            LiteralSet::from_vec(common),
+-            LiteralSet::from_vec(not1),
+-            LiteralSet::from_vec(not2),
+-        )
+-    }
+-
+-    fn union(&mut self, o: LiteralSet) {
+-        self.lits.extend(o.lits);
+-        self.canonicalize();
+-    }
+-
+-    fn cross(&mut self, o: LiteralSet) {
+-        if o.is_empty() || o.has_only_empty() {
+-            return;
+-        }
+-        if self.is_empty() || self.has_only_empty() {
+-            *self = o;
+-            return;
+-        }
+-
+-        let orig = mem::take(&mut self.lits);
+-        for selflit in &orig {
+-            for olit in &o.lits {
+-                let mut newlit = selflit.clone();
+-                newlit.push_str(olit);
+-                self.lits.push(newlit);
+-            }
+-        }
+-    }
+-
+-    fn is_empty(&self) -> bool {
+-        self.lits.is_empty()
+-    }
+-
+-    fn len(&self) -> usize {
+-        self.lits.len()
+-    }
+-
+-    fn min_len(&self) -> usize {
+-        self.lits.iter().map(|x| x.len()).min().unwrap_or(0)
+-    }
+-
+-    fn has_empty(&self) -> bool {
+-        self.lits.first().is_some_and(|x| x.is_empty())
+-    }
+-
+-    fn has_only_empty(&self) -> bool {
+-        self.len() == 1 && self.has_empty()
+-    }
+-}
+-
+-#[derive(Clone, Debug)]
+-pub struct GramQueryBuilder {
+-    ngram_size: usize,
+-    limit_len: usize,
+-    limit_class: usize,
+-}
+-
+-impl GramQueryBuilder {
+-    pub fn new() -> GramQueryBuilder {
+-        GramQueryBuilder { ngram_size: 3, limit_len: 250, limit_class: 10 }
+-    }
+-
+-    pub fn ngram_size(&mut self, size: usize) -> &mut GramQueryBuilder {
+-        // A size smaller than this doesn't make a ton of sense, particularly
+-        // given that it is currently measured in bytes, not codepoints (or
+-        // graphemes).
+-        assert!(size >= 2);
+-        self.ngram_size = size;
+-        self
+-    }
+-
+-    pub fn limit_len(&mut self, len: usize) -> &mut GramQueryBuilder {
+-        self.limit_len = len;
+-        self
+-    }
+-
+-    pub fn limit_class(&mut self, len: usize) -> &mut GramQueryBuilder {
+-        self.limit_class = len;
+-        self
+-    }
+-
+-    pub fn build(&self, exp: &Hir) -> GramQuery {
+-        self.build_analysis(exp).query
+-    }
+-
+-    fn build_analysis(&self, exp: &Hir) -> Analysis {
+-        let mut ana = self.b(exp);
+-        ana.finalize();
+-        ana
+-    }
+-
+-    fn b(&self, exp: &Hir) -> Analysis {
+-        match *exp.kind() {
+-            HirKind::Empty | HirKind::Look(_) => {
+-                Analysis::empty_string(self.ngram_size)
+-            }
+-            HirKind::Literal(ref literal) => Analysis::exact_one(
+-                self.ngram_size,
+-                BString::from(literal.0.as_ref()),
+-            ),
+-            HirKind::Class(hir::Class::Unicode(ref cls)) => {
+-                if class_over_limit_unicode(cls, self.limit_class) {
+-                    return Analysis::anything(self.ngram_size);
+-                }
+-
+-                let mut set = LiteralSet::new();
+-                for r in cls.iter() {
+-                    for cp in (r.start() as u32)..=(r.end() as u32) {
+-                        let Some(ch) = char::from_u32(cp) else {
+-                            continue;
+-                        };
+-                        set.lits.push(BString::from(ch.to_string()));
+-                    }
+-                }
+-                set.canonicalize();
+-                Analysis::exact(self.ngram_size, set)
+-            }
+-            HirKind::Class(hir::Class::Bytes(ref cls)) => {
+-                if class_over_limit_bytes(cls, self.limit_class) {
+-                    return Analysis::anything(self.ngram_size);
+-                }
+-
+-                let mut set = LiteralSet::new();
+-                for r in cls.iter() {
+-                    for b in r.start()..=r.end() {
+-                        set.lits.push(BString::from(vec![b]));
+-                    }
+-                }
+-                set.canonicalize();
+-                Analysis::exact(self.ngram_size, set)
+-            }
+-            HirKind::Capture(ref capture) => self.b(&capture.sub),
+-            HirKind::Repetition(ref rep) => {
+-                if rep.min == 0 {
+-                    Analysis::anything(self.ngram_size)
+-                } else {
+-                    let mut ana = self.b(&rep.sub);
+-                    ana.make_inexact();
+-                    ana
+-                }
+-            }
+-            HirKind::Alternation(ref exps) => {
+-                let mut ana = self.b(&exps[0]);
+-                for e in exps.iter().skip(1) {
+-                    ana.union(self.b(e));
+-                }
+-                ana
+-            }
+-            HirKind::Concat(ref exps) => {
+-                let exps = combine_literals(exps);
+-                let mut ana = Analysis::empty_string(self.ngram_size);
+-                for e in exps {
+-                    let next = self.build_literal_or_hir(e);
+-                    if ana.max_len() + ana.max_len() > self.limit_len {
+-                        ana.concat(Analysis::anything(self.ngram_size));
+-                    } else {
+-                        ana.concat(next);
+-                    }
+-                }
+-                ana
+-            }
+-        }
+-    }
+-
+-    fn build_literal_or_hir(&self, or: LiteralOrHir) -> Analysis {
+-        match or {
+-            LiteralOrHir::Literal(string) => {
+-                Analysis::exact_one(self.ngram_size, string)
+-            }
+-            LiteralOrHir::Other(exp) => self.b(exp),
+-        }
+-    }
+-}
+-
+-impl Default for GramQueryBuilder {
+-    fn default() -> GramQueryBuilder {
+-        GramQueryBuilder::new()
+-    }
+-}
+-
+-fn class_over_limit_unicode(cls: &hir::ClassUnicode, limit: usize) -> bool {
+-    let mut count = 0;
+-    for r in cls.iter() {
+-        if count > limit {
+-            return true;
+-        }
+-        count += (r.end() as u32 - r.start() as u32) as usize;
+-    }
+-    count > limit
+-}
+-
+-fn class_over_limit_bytes(cls: &hir::ClassBytes, limit: usize) -> bool {
+-    let mut count = 0;
+-    for r in cls.iter() {
+-        if count > limit {
+-            return true;
+-        }
+-        count += (r.end() - r.start()) as usize;
+-    }
+-    count > limit
+-}
+-
+-#[derive(Debug)]
+-enum LiteralOrHir<'a> {
+-    Literal(BString),
+-    // Guaranteed to never contain a HirKind::Literal.
+-    Other(&'a Hir),
+-}
+-
+-fn combine_literals(concat: &[Hir]) -> Vec<LiteralOrHir<'_>> {
+-    let mut combined = vec![];
+-    let mut lit = BString::from(vec![]);
+-    for exp in concat {
+-        match *exp.kind() {
+-            HirKind::Literal(ref literal) => {
+-                lit.extend_from_slice(&literal.0);
+-            }
+-            _ => {
+-                if !lit.is_empty() {
+-                    combined.push(LiteralOrHir::Literal(lit));
+-                    lit = BString::from(vec![]);
+-                }
+-                combined.push(LiteralOrHir::Other(exp));
+-            }
+-        }
+-    }
+-    if !lit.is_empty() {
+-        combined.push(LiteralOrHir::Literal(lit));
+-    }
+-    combined
+-}
+-
+-/// Returns all ngrams of the given size in a sliding window fashion over the
+-/// given literal. If the literal is smaller than the given size, then the
+-/// entire literal is returned as an ngram. (An empty literal always results in
+-/// a single empty string returned.)
+-fn ngrams<'b, B: 'b + AsRef<[u8]> + ?Sized>(
+-    size: usize,
+-    lit: &'b B,
+-) -> impl Iterator<Item = &'b [u8]> {
+-    let lit = lit.as_ref();
+-    let size = cmp::min(size, lit.len());
+-    let end = lit.len() - size;
+-    (0..=end).map(move |i| &lit[i..i + size])
+-}
+-
+-fn factor(
+-    qs1: Vec<GramQuery>,
+-    qs2: Vec<GramQuery>,
+-) -> (LiteralSet, LiteralSet, LiteralSet) {
+-    let (mut lits1, mut lits2) = (vec![], vec![]);
+-    for q in qs1 {
+-        lits1.push(q.unwrap_literal());
+-    }
+-    for q in qs2 {
+-        lits2.push(q.unwrap_literal());
+-    }
+-
+-    let set1 = LiteralSet::from_vec(lits1);
+-    let set2 = LiteralSet::from_vec(lits2);
+-    set1.factor(set2)
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use regex_syntax::ParserBuilder;
+-
+-    fn parse(pattern: &str) -> Hir {
+-        ParserBuilder::new().utf8(false).build().parse(pattern).unwrap()
+-    }
+-
+-    fn gramq(pattern: &str) -> GramQuery {
+-        let re = parse(pattern);
+-        let mut b = GramQueryBuilder::new();
+-        b.ngram_size(3);
+-        b.build(&re)
+-    }
+-
+-    fn sgramq(pattern: &str) -> String {
+-        format!("{:?}", gramq(pattern))
+-    }
+-
+-    #[test]
+-    fn iter_ngrams() {
+-        let get = |size, lit| -> Vec<BString> {
+-            ngrams(size, lit).map(BString::from).collect()
+-        };
+-
+-        assert_eq!(get(3, "foobar"), vec!["foo", "oob", "oba", "bar"]);
+-        assert_eq!(get(3, "fooba"), vec!["foo", "oob", "oba"]);
+-        assert_eq!(get(3, "foob"), vec!["foo", "oob"]);
+-        assert_eq!(get(3, "foo"), vec!["foo"]);
+-        assert_eq!(get(3, "fo"), vec!["fo"]);
+-        assert_eq!(get(3, "f"), vec!["f"]);
+-        assert_eq!(get(3, ""), vec![""]);
+-
+-        assert_eq!(get(1, "ab"), vec!["a", "b"]);
+-        assert_eq!(get(1, "a"), vec!["a"]);
+-        assert_eq!(get(1, ""), vec![""]);
+-
+-        assert_eq!(get(0, "ab"), vec!["", "", ""]);
+-        assert_eq!(get(0, "a"), vec!["", ""]);
+-        assert_eq!(get(0, ""), vec![""]);
+-    }
+-
+-    // These tests were taken from codesearch's test suite:
+-    // https://github.com/google/codesearch
+-    #[test]
+-    fn queries() {
+-        macro_rules! t {
+-            ($regex:expr, $expected:expr) => {
+-                assert_eq!(sgramq($regex), $expected);
+-            };
+-        }
+-
+-        t!("foo", "'foo'");
+-        t!("foob", "'foo' & 'oob'");
+-        t!("foobar", "'bar' & 'foo' & 'oba' & 'oob'");
+-        t!("(abc)(def)", "'abc' & 'bcd' & 'cde' & 'def'");
+-        t!("abc.*def", "'abc' & 'def'");
+-        t!("abc.*(def|ghi)", "'abc' & ('def' | 'ghi')");
+-        t!(
+-            "abc(def|ghi)",
+-            "'abc' & (('bcd' & 'cde' & 'def') | ('bcg' & 'cgh' & 'ghi'))"
+-        );
+-        t!("a+hello", "'ahe' & 'ell' & 'hel' & 'llo'");
+-        t!(
+-            "(a+hello|b+world)",
+-            "('ahe' & 'ell' & 'hel' & 'llo') | ('bwo' & 'orl' & 'rld' & 'wor')"
+-        );
+-        t!("a*bbb", "'bbb'");
+-        t!("a?bbb", "'bbb'");
+-        t!("(bbb)a*", "'bbb'");
+-        t!("(bbb)a?", "'bbb'");
+-        t!("^abc", "'abc'");
+-        t!("abc$", "'abc'");
+-        t!("ab[cde]f", "('abc' & 'bcf') | ('abd' & 'bdf') | ('abe' & 'bef')");
+-        t!("(abc|bac)de", "'cde' & (('abc' & 'bcd') | ('acd' & 'bac'))");
+-
+-        t!("ab[^cde]f", "");
+-        t!("ab.f", "");
+-        t!(".", "");
+-        t!("(?s).", "");
+-        t!("()", "");
+-
+-        // Tests that we keeps track of multiple possible prefix/suffixes.
+-        t!(
+-            "[ab][cd][ef]",
+-            "'ace' | 'acf' | 'ade' | 'adf' | 'bce' | 'bcf' | 'bde' | 'bdf'"
+-        );
+-        t!("ab[cd]e", "('abc' & 'bce') | ('abd' & 'bde')");
+-
+-        // Tests that different sized suffixes works.
+-        t!("(a|ab)cde", "'cde' & ('acd' | ('abc' & 'bcd'))");
+-        t!("(a|b|c|d)(ef|g|hi|j)", "");
+-
+-        // Case insensitivity sanity check.
+-        t!("(?i)a~~", "'A~~' | 'a~~'");
+-        t!("(?i)ab~", "'AB~' | 'Ab~' | 'aB~' | 'ab~'");
+-        t!(
+-            "(?i)abc",
+-            "'ABC' | 'ABc' | 'AbC' | 'Abc' | 'aBC' | 'aBc' | 'abC' | 'abc'"
+-        );
+-
+-        // Word boundaries.
+-        t!(r"\b", "");
+-        t!(r"\B", "");
+-        t!(r"\babc", "'abc'");
+-        t!(r"\Babc", "'abc'");
+-        t!(r"abc\b", "'abc'");
+-        t!(r"abc\B", "'abc'");
+-        t!(r"ab\bc", "'abc'");
+-        t!(r"ab\Bc", "'abc'");
+-
+-        // Test that factoring out common ngrams works.
+-        t!("abc|abc", "'abc'");
+-        t!("(ab|ab)c", "'abc'");
+-        t!("ab(cab|cat)", "'abc' & 'bca' & ('cab' | 'cat')");
+-        t!("(z*(abc|def)z*)(z*(abc|def)z*)", "'abc' | 'def'");
+-        t!("(z*abcz*defz*)|(z*abcz*defz*)", "'abc' & 'def'");
+-        t!(
+-            "(z*abcz*defz*(ghi|jkl)z*)|(z*abcz*defz*(mno|prs)z*)",
+-            // "('abc' & 'def' & ('ghi' | 'jkl' | 'mno' | 'prs'))"
+-            "('abc' & 'def' & ('ghi' | 'jkl')) \
+-             | ('abc' & 'def' & ('mno' | 'prs'))"
+-        );
+-    }
+-
+-    #[test]
+-    fn scratch() {
+-        // println!("{:#?}", analysis(r"a|b|c"));
+-        // println!("{:#?}", analysis(r"[2-6]"));
+-        // println!("{:#?}", analysis(r"abcQ+def(QQ)+xyz"));
+-        // println!("{:#?}", analysis(r".abc(XYZ)+"));
+-        // println!("{:#?}", analysis(r".(a)(yz)"));
+-        // println!("{:#?}", analysis(r"abc.def.ghi"));
+-        // println!("{:#?}", analysis(r"ZZZ+(foo|bar|baz)(a|b)"));
+-        // println!("{:#?}", analysis(r"aND|caN|Ha[DS]|WaS"));
+-        // println!("{:#?}", analysis(r"\|[^|][^|]*\|"));
+-        // println!("{:#?}", analysis(r"a[act]ggtaaa|tttacc[agt]t"));
+-        // println!("{:#?}", analysis(r">[^\n]*\n|\n"));
+-        // println!("{:#?}", analysis(r"abcd|(efgh|(mnop|uvwx|yzab)|qrst)|ijkl"));
+-        // println!("{:#?}", analysis(r"foo|bar"));
+-        // println!("{:#?}", analysis(r"foo"));
+-        // println!("{:#?}", analysis(r"abc.*"));
+-        // println!("{:#?}", analysis(r"abc.*(def|ghi)"));
+-        // println!("{:#?}", analysis(r"abc.*def"));
+-        // println!("{:#?}", analysis(r"abcd.*efgh"));
+-        // println!("{:#?}", analysis(r"abc(def|ghi)"));
+-        // println!("{:#?}", analysis(r"a+hello"));
+-        // println!("{:#?}", analysis(r"(a|b|c|d)(ef|g|hi|j)"));
+-        // println!("{:#?}", analysis(r"(z*(abc|def)z*)(z*(abc|def))"));
+-    }
+-}
+diff --git a/tests/index/basic.rs b/tests/index/basic.rs
+deleted file mode 100644
+index acf9c281b5..0000000000
+--- a/tests/index/basic.rs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-use crate::util::{Dir, TestCommand};
+-
+-rgtest!(read_no_index, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("-X").arg("foobar").assert_err();
+-});
+diff --git a/tests/index/disallowed.rs b/tests/index/disallowed.rs
+deleted file mode 100644
+index f81a4991b3..0000000000
+--- a/tests/index/disallowed.rs
++++ /dev/null
+@@ -1,159 +0,0 @@
+-use crate::util::{Dir, TestCommand};
+-
+-rgtest!(search_mode, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command()
+-        .arg("-X")
+-        .arg("--files-without-match")
+-        .arg("no-match")
+-        .assert_err();
+-});
+-
+-rgtest!(binary, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--text").arg("foobar").assert_err();
+-});
+-
+-rgtest!(encoding, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("-Eutf16").arg("foobar").assert_err();
+-    dir.command().arg("-X").arg("-Enone").arg("foobar").assert_err();
+-
+-    eqnice!(
+-        "test:foobar\n",
+-        dir.command().arg("-X").arg("-Eauto").arg("foobar").stdout()
+-    );
+-});
+-
+-rgtest!(engine, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--engine=pcre2").arg("foobar").assert_err();
+-
+-    eqnice!(
+-        "test:foobar\n",
+-        dir.command().arg("-X").arg("--engine=auto").arg("foobar").stdout()
+-    );
+-    eqnice!(
+-        "test:foobar\n",
+-        dir.command().arg("-X").arg("--engine=default").arg("foobar").stdout()
+-    );
+-});
+-
+-rgtest!(follow, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--follow").arg("foobar").assert_err();
+-});
+-
+-rgtest!(glob, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--glob=test").arg("foobar").assert_err();
+-});
+-
+-rgtest!(hidden, |dir: Dir, _cmd: TestCommand| {
+-    dir.create(".test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--hidden").arg("foobar").assert_err();
+-});
+-
+-rgtest!(iglob, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--iglob=test").arg("foobar").assert_err();
+-});
+-
+-rgtest!(ignore_file, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.create("ignore-file", "");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command()
+-        .arg("-X")
+-        .arg("--ignore-file=ignore-file")
+-        .arg("foobar")
+-        .assert_err();
+-});
+-
+-rgtest!(no_ignore, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--no-ignore").arg("foobar").assert_err();
+-    dir.command().arg("-X").arg("--no-ignore-dot").arg("foobar").assert_err();
+-    dir.command()
+-        .arg("-X")
+-        .arg("--no-ignore-exclude")
+-        .arg("foobar")
+-        .assert_err();
+-    dir.command()
+-        .arg("-X")
+-        .arg("--no-ignore-files")
+-        .arg("foobar")
+-        .assert_err();
+-    dir.command()
+-        .arg("-X")
+-        .arg("--no-ignore-global")
+-        .arg("foobar")
+-        .assert_err();
+-    dir.command()
+-        .arg("-X")
+-        .arg("--no-ignore-parent")
+-        .arg("foobar")
+-        .assert_err();
+-    dir.command().arg("-X").arg("--no-ignore-vcs").arg("foobar").assert_err();
+-});
+-
+-rgtest!(no_require_git, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--no-require-git").arg("foobar").assert_err();
+-});
+-
+-rgtest!(one_file_system, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command()
+-        .arg("-X")
+-        .arg("--one-file-system")
+-        .arg("foobar")
+-        .assert_err();
+-});
+-
+-#[cfg(unix)] // in order to use `cat`
+-rgtest!(pre, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--pre").arg("cat").arg("foobar").assert_err();
+-});
+-
+-rgtest!(search_zip, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("--search-zip").arg("foobar").assert_err();
+-});
+-
+-rgtest!(unrestricted, |dir: Dir, _cmd: TestCommand| {
+-    dir.create("test", "foobar");
+-    dir.command().arg("--x-crud").assert_exit_code(0);
+-
+-    dir.command().arg("-X").arg("-u").arg("foobar").assert_err();
+-    dir.command().arg("-X").arg("-uu").arg("foobar").assert_err();
+-    dir.command().arg("-X").arg("-uuu").arg("foobar").assert_err();
+-});
+diff --git a/tests/index/mod.rs b/tests/index/mod.rs
+deleted file mode 100644
+index dc3cc7eb17..0000000000
+--- a/tests/index/mod.rs
++++ /dev/null
+@@ -1,5 +0,0 @@
+-// Some basic UX interactions with an index.
+-mod basic;
+-// At present, many features of ripgrep are not allowed when using indexing.
+-// Ideally some or many of these restrictions will be lifted over time.
+-mod disallowed;
+diff --git a/tests/tests.rs b/tests/tests.rs
+index cf18731825..81e40f806f 100644
+--- a/tests/tests.rs
++++ b/tests/tests.rs
+@@ -12,9 +12,6 @@ mod binary;
+ // Tests related to most features in ripgrep. If you're adding something new
+ // to ripgrep, tests should probably go in here.
+ mod feature;
+-// Tests ripgrep's indexing feature.
+-#[cfg(feature = "unstable-index")]
+-mod index;
+ // Tests for ripgrep's JSON format.
+ mod json;
+ // Miscellaneous tests grouped in a haphazard manner. Try not to add more.

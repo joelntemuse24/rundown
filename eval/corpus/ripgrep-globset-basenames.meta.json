@@ -1,0 +1,15 @@
+{
+  "title": "globset: match filename-only regexes against basenames",
+  "body": "We now match filename-only globs such as `**/.venv*` and `**/*.py[cod]` against the basename, avoiding a regex search over the full path. We use this strategy only when the filename pattern cannot match a path separator.\n\nOn Linux x86-64 against `3fce3b5`, building the Python ignore rules is about 23% faster. Warm incremental replay over Ruff paths improves 4\u20139%; replay over uv paths is flat in the default build and improves 2\u20134% with fat LTO. The default-build Ruff parallel walk is 3.7% slower.\n",
+  "commits": [
+    "globset: match filename-only regexes against basenames"
+  ],
+  "repo": "BurntSushi/ripgrep",
+  "number": 3561,
+  "base": "9d07a922605313dc47b78b802c7b0616fd76d409",
+  "head": "bc036bd28ec0a35e2e0bd42acd302600a005b290",
+  "merged_at": "2026-10-27T18:13:02Z",
+  "license": "MIT OR Unlicense",
+  "license_file": "COPYING, LICENSE-MIT, UNLICENSE",
+  "url": "https://github.com/BurntSushi/ripgrep/pull/3561"
+}

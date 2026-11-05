@@ -1,0 +1,19 @@
+{
+  "title": "ignore: add incremental checking",
+  "body": "This adds a new increment checker for ignore files, overrides and file\ntype selection. This effectively makes it possible to check individual\nfile paths as to whether they are ignored or not by any ignore file in\nthe directory tree (including parent gitignores). This is particularly\nuseful in the context of implementing a file watcher, where one wants to\nmake a decision about whether a newly added file should be included\n*without* doing a full re-traversal of the directory tree.\n\nThis implementation reuses pretty much all of the existing gitignore\nlogic without making any changes to it.\n",
+  "commits": [
+    "msrv: bump to Rust 1.96",
+    "ignore: refactor `is_hidden`",
+    "ignore: add routine for checking if a path is hidden or not",
+    "ignore: more pathutil clean-up",
+    "ignore: add incremental checking"
+  ],
+  "repo": "BurntSushi/ripgrep",
+  "number": 3472,
+  "base": "fc3dd04b7ca18ec8be97704dc098bbd062bad244",
+  "head": "250fe3603946430aa034cd63426da916db4af431",
+  "merged_at": "2026-07-17T13:10:33Z",
+  "license": "MIT OR Unlicense",
+  "license_file": "COPYING, LICENSE-MIT, UNLICENSE",
+  "url": "https://github.com/BurntSushi/ripgrep/pull/3472"
+}

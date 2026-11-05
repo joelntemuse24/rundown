@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index a7fae5a21b0..792907975fb 100644
+--- a/package.json
++++ b/package.json
+@@ -33,7 +33,7 @@
+   ],
+   "dependencies": {
+     "accepts": "^2.0.0",
+-    "body-parser": "^2.3.0",
++    "body-parser": "^2.4.0",
+     "content-disposition": "^2.0.1",
+     "content-type": "^2.0.0",
+     "cookie": "^0.7.1",
