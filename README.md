@@ -131,7 +131,7 @@ A case whose reply is missing, unreadable, never repaired into JSON, or whose ca
 
 `eval/run.ts` is not part of `pnpm test` because it costs calls. `test/eval.test.ts` runs the same scorer against `fixtures/sample.replay.json`, so CI catches a scorer that drifts. `pnpm eval --dry <dir>` scores saved `<case>.json` replies with no model calls.
 
-Any change to the prompt ships with an eval run in its pull request, comparing scores before and after. `PROMPT_VERSION` is the first eight hex of a fingerprint over the whole rendered prompt — both text blocks, every branch of `limitsFor`, the section layout, the repair text, `DIFF_BUDGET`, and the truncation thresholds — so editing any of them is a cache miss rather than a stale replay.
+Any change to the prompt ships with an eval run in its pull request, comparing scores before and after. `PROMPT_VERSION` is the first eight hex of a fingerprint over the whole rendered prompt — both text blocks, every branch of `limitsFor`, the section layout, the repair text, `DIFF_BUDGET`, the truncation thresholds, and the text `truncateDiff` writes around the diff (file headers, file order, the large-file summary, and the truncation marker) — so editing any of them is a cache miss rather than a stale replay.
 
 ## Packaging
 
