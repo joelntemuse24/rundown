@@ -19,8 +19,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm run build:web && pnpm run build:server",
-    "prepack": "pnpm build",
+    "build": "npm run build:web && npm run build:server",
+    "prepack": "npm run build",
     "build:web": "vite build --config web/vite.config.ts",
     "build:server": "tsc -p tsconfig.json",
     "dev:web": "vite --config web/vite.config.ts",

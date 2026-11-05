@@ -135,7 +135,7 @@ Any change to the prompt ships with an eval run in its pull request, comparing s
 
 ## Packaging
 
-`npm pack` builds first and ships only `bin`, `dist`, `web/dist`, `fixtures`, `adapters`, and `README.md`. `dist/` and `web/dist/` are gitignored, so `prepack` runs the build; without it an installed package has no `dist/cli.js` and `bin/rundown.js` falls back to `tsx`, which is only a dev dependency. The fixture is packed, so `rundown --fixture fixtures/sample.patch` works from an install.
+`npm pack` builds first and ships only `bin`, `dist`, `web/dist`, `fixtures`, `adapters`, and `README.md`. `dist/` and `web/dist/` are gitignored, so `prepack` runs the build (through `npm run`, so packing needs no pnpm); without it an installed package has no `dist/cli.js` and `bin/rundown.js` falls back to `tsx`, which is only a dev dependency. The fixture is packed, so `rundown --fixture fixtures/sample.patch` works from an install.
 
 ## Not in v1
 

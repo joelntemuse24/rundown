@@ -16,7 +16,11 @@ describe('the published package', () => {
   });
 
   it('builds before packing, because dist and web/dist are gitignored', () => {
-    expect(pkg.scripts.prepack).toBe('pnpm build');
+    expect(pkg.scripts.prepack).toBe('npm run build');
+  });
+
+  it('builds with npm run, so packing and publishing do not need pnpm installed', () => {
+    for (const s of ['build', 'prepack']) expect(pkg.scripts[s], s).not.toMatch(/\bpnpm\b/);
   });
 
   it('keeps the built entry point and the viewer in the tarball', () => {
