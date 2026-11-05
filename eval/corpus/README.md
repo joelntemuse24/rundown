@@ -37,11 +37,18 @@ file is recorded as `license_file` in each meta file. All of them permit redistr
 ## Rebuilding
 
 `build-meta.mjs` reads `repo` and `number` from the existing `*.meta.json` files, so the meta
-files are the single source of truth. It refreshes the title, body, commits, SHAs, and patch:
+files are the single source of truth. It refreshes the title, body, commits, SHAs, patch, and
+license:
 
 ```sh
+node eval/corpus/build-meta.mjs --check    # report what would change, write nothing; exits 1 if anything would
 node eval/corpus/build-meta.mjs            # every case
 node eval/corpus/build-meta.mjs flask-app-query   # one case
 ```
+
+Run `--check` first: a refresh re-downloads each patch, and the corpus is only useful for
+comparing runs if it stays the same. The license comes from GitHub's license API at the pinned
+head. Dual-licensed repositories (ripgrep, serde) have no single SPDX id there, so those cases
+keep their hand-checked value and the script lists them for a manual look.
 
 It needs `gh` on `PATH`. It is not part of the build, and no test calls it.
